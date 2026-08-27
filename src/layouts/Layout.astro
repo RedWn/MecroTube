@@ -1,0 +1,52 @@
+---
+import type { Locale } from '../lib/types';
+import { dictionaries } from '../i18n/ui';
+import '../styles/global.css';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props as Props;
+const dict = dictionaries[locale];
+const dir = locale === 'ar' ? 'rtl' : 'ltr';
+const base = import.meta.env.BASE_URL;
+const otherHref = locale === 'ar' ? base : `${base.replace(/\/$/, '')}/ar/`;
+---
+<!doctype html>
+<html lang={locale} dir={dir}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href={`${base.replace(/\/$/, '')}/favicon.svg`} />
+    <title>{dict.title}</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="app-header">
+        <div>
+          <h1>{dict.title}</h1>
+          <p class="subtitle">{dict.subtitle}</p>
+        </div>
+        <a class="lang-switch" href={otherHref}>{dict.langSwitch}</a>
+      </header>
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <h2>{dict.lines}</h2>
+            <button id="add-line-btn" class="btn btn-primary">{dict.addLine}</button>
+          </div>
+          <ul id="line-list" class="line-list"></ul>
+          <div id="line-editor" class="editor-panel" hidden></div>
+          <div class="data-actions">
+            <button id="export-btn" class="btn btn-link">{dict.exportData}</button>
+            <button id="import-btn" class="btn btn-link">{dict.importData}</button>
+            <input id="import-input" type="file" accept="application/json,.json" hidden />
+          </div>
+        </aside>
+        <main id="map" class="map"></main>
+      </div>
+    </div>
+    <slot />
+  </body>
+</html>
