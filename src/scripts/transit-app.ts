@@ -138,15 +138,15 @@ export class DamascusTransitApp {
     const interchanges = this.interchangeIds();
 
     for (const line of this.data.lines) {
+      if (this.selectedLineId && line.id !== this.selectedLineId) continue;
       const stops = this.stopsForLine(line);
       if (stops.length < 2) continue;
       const latlngs: [number, number][] = stops.map((s) => [s.lat, s.lng]);
       if (line.loop) latlngs.push(latlngs[0]);
-      const isSelected = line.id === this.selectedLineId;
       const polyline = L.polyline(latlngs, {
         color: line.color,
-        weight: isSelected ? 8 : 6,
-        opacity: isSelected || !this.selectedLineId ? 1 : 0.35,
+        weight: 8,
+        opacity: 1,
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(this.map);
@@ -157,6 +157,7 @@ export class DamascusTransitApp {
     // draw stop markers on top
     const drawnStopIds = new Set<string>();
     for (const line of this.data.lines) {
+      if (this.selectedLineId && line.id !== this.selectedLineId) continue;
       for (const stop of this.stopsForLine(line)) {
         if (drawnStopIds.has(stop.id)) continue;
         drawnStopIds.add(stop.id);
@@ -198,7 +199,13 @@ export class DamascusTransitApp {
   }
 
   private handleMapClick(e: L.LeafletMouseEvent) {
-    if (!this.selectedLineId || !this.addingStops) return;
+    if (!this.selectedLineId) return;
+    if (!this.addingStops) {
+      // Clicking the map background (not a stop) while viewing a line
+      // deselects it and shows all lines again.
+      this.selectLine(null);
+      return;
+    }
     const line = this.data.lines.find((l) => l.id === this.selectedLineId);
     if (!line) return;
 
