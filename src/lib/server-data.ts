@@ -2,27 +2,21 @@ import { get as getBlob, put as putBlob } from '@vercel/blob';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { TransitData } from './types';
-import { sampleData } from './sampleData';
 import { parseTransitData } from './storage';
 
 const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 const BLOB_PATH = 'transit-data.json';
 
 /**
- * Local JSON file used in dev (or anywhere Vercel Blob is not configured),
- * so edits still persist while running `astro dev`.
+ * Local JSON file used in dev (or anywhere Vercel Blob is not configured).
+ * Read on GET, written on PUT. Never seeded with sample data.
  */
 const DATA_FILE = path.resolve(process.cwd(), 'data', 'transit-data.json');
 
-/**
- * Returns the persisted data. On first run (or if the store is missing or
- * corrupt) it seeds the data with the sample data and returns that.
- */
+/** Returns the persisted data, or empty data when nothing has been stored yet. */
 export async function getServerData(): Promise<TransitData> {
   if (BLOB_TOKEN) {
-    const fromBlob = await getBlobData();
-    if (fromBlob) return fromBlob;
-    return writeBlobData(structuredClone(sampleData));
+    return (await getBlobData()) ?? EMPTY_DATA;
   }
   return getFileData();
 }
@@ -32,15 +26,10 @@ export async function writeServerData(data: TransitData): Promise<TransitData> {
   if (BLOB_TOKEN) {
     return writeBlobData(data);
   }
-  try {
-    return writeFileData(data);
-  } catch (err) {
-    // e.g. a read-only filesystem on Vercel without Blob configured: the
-    // data still lives in the client's localStorage.
-    console.error('Failed to persist transit data to disk', err);
-    return data;
-  }
+  return writeFileData(data);
 }
+
+const EMPTY_DATA: TransitData = { stops: [], lines: [] };
 
 async function getBlobData(): Promise<TransitData | null> {
   const token = BLOB_TOKEN;
@@ -75,15 +64,9 @@ function getFileData(): TransitData {
       if (parsed) return parsed;
     }
   } catch {
-    // fall through to re-seeding
+    // fall through to empty data
   }
-  const seed = structuredClone(sampleData);
-  try {
-    return writeFileData(seed);
-  } catch (err) {
-    console.error('Failed to seed transit-data.json', err);
-    return seed;
-  }
+  return EMPTY_DATA;
 }
 
 /** Persists the given data to the shared JSON file (atomically via a temp file). */

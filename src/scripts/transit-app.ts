@@ -1,7 +1,6 @@
 import L from 'leaflet';
 import type { Stop, TransitLine, TransitData, Locale } from '../lib/types';
 import { exportDataAsJson, parseTransitData, mergeTransitData } from '../lib/storage';
-import { sampleData } from '../lib/sampleData';
 import { dictionaries } from '../i18n/ui';
 
 const DAMASCUS_CENTER: [number, number] = [33.5138, 36.2765];
@@ -10,48 +9,20 @@ const LINE_COLORS = ['#0019A8', '#DA291C', '#00782A', '#F4A900', '#7B2D8E', '#00
 const BASE_URL = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
 const API_URL = `${BASE_URL}api/transit`;
 
-const STORAGE_KEY = 'mecrotube-transit-data';
-
-function loadFromLocalStorage(): TransitData | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return parseTransitData(JSON.parse(raw));
-  } catch (err) {
-    console.error('Failed to load transit data from localStorage', err);
-    return null;
-  }
-}
-
-function saveToLocalStorage(data: TransitData): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (err) {
-    console.error('Failed to save transit data to localStorage', err);
-  }
-}
-
 async function loadFromServer(): Promise<TransitData> {
-  const local = loadFromLocalStorage();
-  if (local) return local;
   try {
     const res = await fetch(API_URL, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`GET ${API_URL} failed: ${res.status}`);
-    const parsed = parseTransitData(await res.json());
-    if (parsed) {
-      saveToLocalStorage(parsed);
-      return parsed;
-    }
+    return parseTransitData(await res.json()) ?? { stops: [], lines: [] };
   } catch (err) {
     console.error('Failed to load transit data from server', err);
+    return { stops: [], lines: [] };
   }
-  return structuredClone(sampleData);
 }
 
 // Saves are queued so rapid edits hit the server in the order they were made.
 let saveChain: Promise<unknown> = Promise.resolve();
 function saveToServer(data: TransitData): void {
-  saveToLocalStorage(data);
   const body = JSON.stringify(data);
   saveChain = saveChain
     .then(() =>
@@ -109,7 +80,7 @@ export class DamascusTransitApp {
     this.importBtn = opts.importBtn;
     this.importInput = opts.importInput;
 
-    this.data = structuredClone(sampleData);
+    this.data = { stops: [], lines: [] };
     void this.loadInitialData();
 
     this.map = L.map(opts.mapEl, {
