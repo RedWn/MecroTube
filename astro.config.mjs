@@ -7,7 +7,7 @@ import vercel from '@astrojs/vercel';
 // https://astro.build/config
 export default defineConfig({
   site: 'https://RedWn.github.io',
-  base: '/MecroTube',
+  base: process.env.VERCEL ? '/' : '/MecroTube',
   output: 'server',
   adapter: vercel({
     imageService: true,
