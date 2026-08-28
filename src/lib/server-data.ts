@@ -35,7 +35,7 @@ async function getBlobData(): Promise<TransitData | null> {
   const token = BLOB_TOKEN;
   if (!token) return null;
   try {
-    const result = await getBlob(BLOB_PATH, { token });
+    const result = await getBlob(BLOB_PATH, { token, access: 'public' });
     if (!result) return null;
     const text = await new Response(result.stream).text();
     return parseTransitData(JSON.parse(text));
