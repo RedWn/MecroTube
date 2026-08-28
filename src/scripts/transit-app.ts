@@ -1,10 +1,43 @@
 import L from 'leaflet';
 import type { Stop, TransitLine, TransitData, Locale } from '../lib/types';
-import { loadData, saveData, exportDataAsJson, parseTransitData, mergeTransitData } from '../lib/storage';
+import { exportDataAsJson, parseTransitData, mergeTransitData } from '../lib/storage';
+import { sampleData } from '../lib/sampleData';
 import { dictionaries } from '../i18n/ui';
 
 const DAMASCUS_CENTER: [number, number] = [33.5138, 36.2765];
 const LINE_COLORS = ['#0019A8', '#DA291C', '#00782A', '#F4A900', '#7B2D8E', '#00A6A6', '#E85D75', '#5C4033'];
+
+const BASE_URL = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+const API_URL = `${BASE_URL}api/transit`;
+
+async function loadFromServer(): Promise<TransitData> {
+  try {
+    const res = await fetch(API_URL, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`GET ${API_URL} failed: ${res.status}`);
+    const parsed = parseTransitData(await res.json());
+    if (parsed) return parsed;
+  } catch (err) {
+    console.error('Failed to load transit data from server', err);
+  }
+  return structuredClone(sampleData);
+}
+
+// Saves are queued so rapid edits hit the server in the order they were made.
+let saveChain: Promise<unknown> = Promise.resolve();
+function saveToServer(data: TransitData): void {
+  const body = JSON.stringify(data);
+  saveChain = saveChain
+    .then(() =>
+      fetch(API_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }).then((res) => {
+        if (!res.ok) throw new Error(`PUT ${API_URL} failed: ${res.status}`);
+      }),
+    )
+    .catch((err) => console.error('Failed to save transit data to server', err));
+}
 
 function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -49,7 +82,8 @@ export class DamascusTransitApp {
     this.importBtn = opts.importBtn;
     this.importInput = opts.importInput;
 
-    this.data = loadData();
+    this.data = structuredClone(sampleData);
+    void this.loadInitialData();
 
     this.map = L.map(opts.mapEl, {
       zoomControl: true,
@@ -95,8 +129,13 @@ export class DamascusTransitApp {
     this.renderAll();
   }
 
+  private async loadInitialData() {
+    this.data = await loadFromServer();
+    this.renderAll();
+  }
+
   private save() {
-    saveData(this.data);
+    saveToServer(this.data);
   }
 
   private stopName(stop: Stop): string {

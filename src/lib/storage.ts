@@ -1,25 +1,4 @@
 import type { TransitData } from './types';
-import { sampleData } from './sampleData';
-
-const STORAGE_KEY = 'damascus-transit-data-v1';
-
-export function loadData(): TransitData {
-  if (typeof localStorage === 'undefined') return structuredClone(sampleData);
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return structuredClone(sampleData);
-    const parsed = JSON.parse(raw) as TransitData;
-    if (!parsed.stops || !parsed.lines) return structuredClone(sampleData);
-    return parsed;
-  } catch {
-    return structuredClone(sampleData);
-  }
-}
-
-export function saveData(data: TransitData): void {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
 
 /**
  * Validates that a parsed JSON value has the shape of TransitData.
