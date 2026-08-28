@@ -1,20 +1,16 @@
-import { createClient } from '@vercel/kv';
+import { get as getBlob, put as putBlob } from '@vercel/blob';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { TransitData } from './types';
 import { sampleData } from './sampleData';
 import { parseTransitData } from './storage';
 
-const KV_URL = process.env.KV_REST_API_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN;
-const KV_KEY = 'transit-data';
-
-const kv = KV_URL && KV_TOKEN ? createClient({ url: KV_URL, token: KV_TOKEN }) : null;
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+const BLOB_PATH = 'transit-data.json';
 
 /**
- * Shared JSON file backing the transit data. Read/written by the server so
- * every visitor sees (and edits) the same data. Used locally and as a
- * fallback when Vercel KV is not configured.
+ * Local JSON file used in dev (or anywhere Vercel Blob is not configured),
+ * so edits still persist while running `astro dev`.
  */
 const DATA_FILE = path.resolve(process.cwd(), 'data', 'transit-data.json');
 
@@ -23,30 +19,46 @@ const DATA_FILE = path.resolve(process.cwd(), 'data', 'transit-data.json');
  * corrupt) it seeds the data with the sample data and returns that.
  */
 export async function getServerData(): Promise<TransitData> {
-  const fromKV = kv ? await getKVData() : null;
-  if (fromKV) return fromKV;
-
+  if (BLOB_TOKEN) {
+    const fromBlob = await getBlobData();
+    if (fromBlob) return fromBlob;
+    return writeBlobData(structuredClone(sampleData));
+  }
   return getFileData();
 }
 
-/** Persists the given data, preferring Vercel KV when configured. */
+/** Persists the given data to Vercel Blob (or the local file when unconfigured). */
 export async function writeServerData(data: TransitData): Promise<TransitData> {
-  if (kv) {
-    await kv.set<TransitData>(KV_KEY, data);
-    return data;
+  if (BLOB_TOKEN) {
+    return writeBlobData(data);
   }
   return writeFileData(data);
 }
 
-async function getKVData(): Promise<TransitData | null> {
+async function getBlobData(): Promise<TransitData | null> {
+  const token = BLOB_TOKEN;
+  if (!token) return null;
   try {
-    const value = await kv!.get<TransitData>(KV_KEY);
-    if (!value) return null;
-    return parseTransitData(value);
+    const result = await getBlob(BLOB_PATH, { token });
+    if (!result) return null;
+    const text = await new Response(result.stream).text();
+    return parseTransitData(JSON.parse(text));
   } catch (err) {
-    console.error('Failed to read transit data from Vercel KV', err);
+    console.error('Failed to read transit-data.json from Vercel Blob', err);
     return null;
   }
+}
+
+async function writeBlobData(data: TransitData): Promise<TransitData> {
+  const token = BLOB_TOKEN!;
+  await putBlob(BLOB_PATH, JSON.stringify(data, null, 2), {
+    token,
+    contentType: 'application/json',
+    cacheControlMaxAge: 0,
+    access: 'public',
+    allowOverwrite: true,
+  });
+  return data;
 }
 
 function getFileData(): TransitData {
@@ -58,7 +70,13 @@ function getFileData(): TransitData {
   } catch {
     // fall through to re-seeding
   }
-  return writeFileData(structuredClone(sampleData));
+  const seed = structuredClone(sampleData);
+  try {
+    return writeFileData(seed);
+  } catch (err) {
+    console.error('Failed to seed transit-data.json', err);
+    return seed;
+  }
 }
 
 /** Persists the given data to the shared JSON file (atomically via a temp file). */

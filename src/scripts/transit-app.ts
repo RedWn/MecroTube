@@ -10,6 +10,27 @@ const LINE_COLORS = ['#0019A8', '#DA291C', '#00782A', '#F4A900', '#7B2D8E', '#00
 const BASE_URL = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
 const API_URL = `${BASE_URL}api/transit`;
 
+const STORAGE_KEY = 'mecrotube-transit-data';
+
+function loadFromLocalStorage(): TransitData | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return parseTransitData(JSON.parse(raw));
+  } catch (err) {
+    console.error('Failed to load transit data from localStorage', err);
+    return null;
+  }
+}
+
+function saveToLocalStorage(data: TransitData): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (err) {
+    console.error('Failed to save transit data to localStorage', err);
+  }
+}
+
 async function loadFromServer(): Promise<TransitData> {
   try {
     const res = await fetch(API_URL, { headers: { Accept: 'application/json' } });
@@ -19,12 +40,13 @@ async function loadFromServer(): Promise<TransitData> {
   } catch (err) {
     console.error('Failed to load transit data from server', err);
   }
-  return structuredClone(sampleData);
+  return loadFromLocalStorage() ?? structuredClone(sampleData);
 }
 
 // Saves are queued so rapid edits hit the server in the order they were made.
 let saveChain: Promise<unknown> = Promise.resolve();
 function saveToServer(data: TransitData): void {
+  saveToLocalStorage(data);
   const body = JSON.stringify(data);
   saveChain = saveChain
     .then(() =>
