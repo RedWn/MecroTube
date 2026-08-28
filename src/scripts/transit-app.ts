@@ -32,15 +32,20 @@ function saveToLocalStorage(data: TransitData): void {
 }
 
 async function loadFromServer(): Promise<TransitData> {
+  const local = loadFromLocalStorage();
+  if (local) return local;
   try {
     const res = await fetch(API_URL, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(`GET ${API_URL} failed: ${res.status}`);
     const parsed = parseTransitData(await res.json());
-    if (parsed) return parsed;
+    if (parsed) {
+      saveToLocalStorage(parsed);
+      return parsed;
+    }
   } catch (err) {
     console.error('Failed to load transit data from server', err);
   }
-  return loadFromLocalStorage() ?? structuredClone(sampleData);
+  return structuredClone(sampleData);
 }
 
 // Saves are queued so rapid edits hit the server in the order they were made.

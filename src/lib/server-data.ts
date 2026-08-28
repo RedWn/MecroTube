@@ -32,7 +32,14 @@ export async function writeServerData(data: TransitData): Promise<TransitData> {
   if (BLOB_TOKEN) {
     return writeBlobData(data);
   }
-  return writeFileData(data);
+  try {
+    return writeFileData(data);
+  } catch (err) {
+    // e.g. a read-only filesystem on Vercel without Blob configured: the
+    // data still lives in the client's localStorage.
+    console.error('Failed to persist transit data to disk', err);
+    return data;
+  }
 }
 
 async function getBlobData(): Promise<TransitData | null> {
