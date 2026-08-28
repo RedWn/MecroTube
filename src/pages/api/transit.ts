@@ -6,8 +6,8 @@ export const prerender = false;
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 
-export const GET: APIRoute = () => {
-  return new Response(JSON.stringify(getServerData(), null, 2), { headers: jsonHeaders });
+export const GET: APIRoute = async () => {
+  return new Response(JSON.stringify(await getServerData(), null, 2), { headers: jsonHeaders });
 };
 
 export const PUT: APIRoute = async ({ request }) => {
@@ -27,6 +27,6 @@ export const PUT: APIRoute = async ({ request }) => {
       headers: jsonHeaders,
     });
   }
-  writeServerData(data);
+  await writeServerData(data);
   return new Response(JSON.stringify({ ok: true }), { headers: jsonHeaders });
 };
