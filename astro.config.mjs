@@ -9,7 +9,9 @@ export default defineConfig({
   site: 'https://RedWn.github.io',
   base: '/MecroTube',
   output: 'server',
-  adapter: vercel(),
+  adapter: vercel({
+    imageService: true,
+  }),
   i18n: {
     locales: ['en', 'ar'],
     defaultLocale: 'en',
