@@ -3,7 +3,7 @@ import type { Locale } from './types';
 export const dictionaries = {
   en: {
     title: 'Damascus Transit Map',
-    subtitle: 'A tube-style map of Damascus transit lines',
+    subtitle: 'Road Augmentation Management Interface',
     lines: 'Lines',
     addLine: '+ Add line',
     editStops: 'Edit stops',

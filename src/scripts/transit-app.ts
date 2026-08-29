@@ -86,6 +86,16 @@ export class DamascusTransitApp {
 
     this.map = L.map(opts.mapEl, {
       zoomControl: true,
+      // Natural panning: the map glides after the drag is released.
+      inertia: true,
+      inertiaDeceleration: 2500,
+      inertiaMaxSpeed: 2,
+      easeLinearity: 0.15,
+      // Natural zooming: wheel zoom is smooth and proportional to scroll.
+      scrollWheelZoom: true,
+      wheelPxPerZoomLevel: 45,
+      zoomSnap: 0.25,
+      maxZoom: 19,
     }).setView(DAMASCUS_CENTER, 13);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
