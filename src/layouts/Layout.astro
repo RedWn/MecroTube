@@ -11,42 +11,155 @@ const { locale } = Astro.props as Props;
 const dict = dictionaries[locale];
 const dir = locale === 'ar' ? 'rtl' : 'ltr';
 const base = import.meta.env.BASE_URL;
-const otherHref = locale === 'ar' ? base : `${base.replace(/\/$/, '')}/ar/`;
+const root = base.replace(/\/$/, '');
+const otherHref = locale === 'ar' ? base : `${root}/ar/`;
 ---
 <!doctype html>
 <html lang={locale} dir={dir}>
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href={`${base.replace(/\/$/, '')}/favicon.svg`} />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d0f13" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content={dict.subtitle} />
+    <link rel="icon" type="image/svg+xml" href={`${root}/favicon.svg`} />
+    <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin />
+    <link rel="preconnect" href="https://router.project-osrm.org" crossorigin />
     <title>{dict.title}</title>
+    <script is:inline>
+      // Apply the stored theme before first paint to avoid a flash of the
+      // wrong palette. Falls through to the OS preference when unset.
+      try {
+        var t = localStorage.getItem('mt-theme');
+        if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
   </head>
   <body>
+    <a class="skip-link" href="#map">{dict.lines}</a>
     <div id="app">
       <header class="app-header">
-        <div>
-          <h1>{dict.title}</h1>
-          <p class="subtitle">{dict.subtitle}</p>
-        </div>
-        <a class="lang-switch" href={otherHref}>{dict.langSwitch}</a>
-      </header>
-      <div class="layout">
-        <aside class="sidebar">
-          <div class="sidebar-header">
-            <h2>{dict.lines}</h2>
-            <button id="add-line-btn" class="btn btn-primary">{dict.addLine}</button>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="brand-text">
+            <h1>{dict.title}</h1>
+            <p class="subtitle">{dict.subtitle}</p>
           </div>
-          <ul id="line-list" class="line-list"></ul>
-          <div id="line-editor" class="editor-panel" hidden></div>
+        </div>
+        <div class="header-actions">
+          <button id="theme-btn" class="chip" type="button" aria-label={dict.themeToggle}>
+            <span aria-hidden="true">◐</span>
+          </button>
+          <a class="lang-switch" href={otherHref} lang={locale === 'ar' ? 'en' : 'ar'}>
+            {dict.langSwitch}
+          </a>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar" aria-label={dict.lines}>
+          <div class="sidebar-scroll">
+            <div class="sidebar-header">
+              <h2 id="lines-heading">{dict.lines}</h2>
+              <button id="add-line-btn" class="btn btn-primary btn-sm" type="button">
+                {dict.addLine}
+              </button>
+            </div>
+
+            <div class="filters" role="search">
+              <div class="search-field">
+                <span class="search-icon" aria-hidden="true"></span>
+                <input
+                  id="search-input"
+                  type="search"
+                  name="line-search"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder={dict.searchPlaceholder}
+                  aria-label={dict.searchPlaceholder}
+                />
+              </div>
+              <div class="filter-row" id="filter-chips" role="group" aria-label={dict.lines}>
+                <button class="chip" type="button" data-filter="all" aria-pressed="true">
+                  {dict.filterAll}
+                </button>
+                <button class="chip" type="button" data-filter="loop" aria-pressed="false">
+                  {dict.filterLoops}
+                </button>
+                <button class="chip" type="button" data-filter="interchange" aria-pressed="false">
+                  {dict.filterInterchange}
+                </button>
+              </div>
+              <p class="filter-meta" id="filter-meta" aria-live="polite"></p>
+            </div>
+
+            <ul id="line-list" class="line-list" aria-labelledby="lines-heading"></ul>
+            <section id="line-editor" class="editor-panel" aria-label={dict.editorTitle} hidden></section>
+          </div>
+
           <div class="data-actions">
-            <button id="export-btn" class="btn btn-link">{dict.exportData}</button>
-            <button id="import-btn" class="btn btn-link">{dict.importData}</button>
-            <input id="import-input" type="file" accept="application/json,.json" hidden />
+            <button id="export-btn" class="btn btn-secondary btn-sm" type="button">
+              {dict.exportData}
+            </button>
+            <button id="import-btn" class="btn btn-secondary btn-sm" type="button">
+              {dict.importData}
+            </button>
+            <input
+              id="import-input"
+              type="file"
+              accept="application/json,.json"
+              class="visually-hidden"
+              tabindex="-1"
+              aria-hidden="true"
+            />
           </div>
         </aside>
-        <main id="map" class="map"></main>
+
+        <main id="map" class="map" data-tiles="muted" aria-label={dict.title} tabindex="-1">
+          <div class="map-toolbar" id="map-toolbar">
+            <button id="geom-btn" class="chip" type="button" aria-pressed="false">
+              {dict.straightLines}
+            </button>
+            <button id="tiles-btn" class="chip" type="button" aria-pressed="true">
+              {dict.muteBasemap}
+            </button>
+          </div>
+        </main>
       </div>
     </div>
+
+    <!-- Stop naming: replaces two sequential window.prompt() calls. -->
+    <dialog id="stop-dialog" class="modal" aria-labelledby="stop-dialog-title">
+      <form method="dialog" class="modal-body">
+        <h3 id="stop-dialog-title">{dict.stopDialogTitle}</h3>
+        <p class="modal-text">{dict.stopDialogText}</p>
+        <label class="field">
+          <span>{dict.stopNamePrompt}</span>
+          <input id="stop-name-en" type="text" name="stop-name-en" autocomplete="off" spellcheck="false" />
+        </label>
+        <label class="field">
+          <span>{dict.stopNamePromptAr}</span>
+          <input id="stop-name-ar" type="text" name="stop-name-ar" dir="rtl" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="modal-actions">
+          <button value="cancel" class="btn btn-secondary" type="submit">{dict.cancel}</button>
+          <button id="stop-save" value="save" class="btn btn-primary" type="submit">{dict.save}</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="modal" aria-labelledby="confirm-dialog-title">
+      <form method="dialog" class="modal-body">
+        <h3 id="confirm-dialog-title"></h3>
+        <p class="modal-text" id="confirm-dialog-text"></p>
+        <div class="modal-actions">
+          <button value="cancel" class="btn btn-secondary" type="submit">{dict.cancel}</button>
+          <button id="confirm-ok" value="ok" class="btn btn-danger" type="submit"></button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
     <slot />
   </body>
 </html>

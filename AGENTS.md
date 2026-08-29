@@ -36,12 +36,25 @@ then calls `this.save()` (fire-and-forget PUT) and re-renders. Rendering is full
 `renderMap()` removes every layer and redraws. State that drives rendering: `selectedLineId` and
 `addingStops`.
 
+**Route geometry** ([src/lib/routing.ts](src/lib/routing.ts)) — `snapToRoads()` calls OSRM to bend
+polylines onto real streets; one request carries a whole line's waypoints. Every failure path
+(offline, rate-limited, >100 waypoints, non-`Ok` response) returns straight segments instead of
+throwing, so the map always renders. Results are cached per exact stop geometry. `smoothPath()` is
+the offline alternative: a Catmull-Rom spline that interpolates through every stop. The mode is
+cycled by the map toolbar and persisted in the `geom` query param. `PUBLIC_OSRM_URL` overrides the
+public demo server, which is rate-limited and unsuitable for production.
+
 **Persistence** — client → `PUT /api/transit` ([src/pages/api/transit.ts](src/pages/api/transit.ts))
 → [src/lib/server-data.ts](src/lib/server-data.ts), which picks a backend at runtime:
 Vercel Blob when `BLOB_READ_WRITE_TOKEN` is set, otherwise a local `data/transit-data.json`
 (gitignored, written atomically via temp file + rename). There is no seed data; an empty store
 returns `{ stops: [], lines: [] }`. `parseTransitData()` in [src/lib/storage.ts](src/lib/storage.ts)
 is the single validation gate — used by the API route, the blob/file readers, and the import flow.
+
+**Editor rendering** — `renderSidebar()` rebuilds freely, but the editor does not: `buildEditor()`
+runs once per selected line and `refreshEditor()` thereafter syncs values in place, skipping any
+input that currently holds focus. Rebuilding on each keystroke (the previous behavior) destroyed
+the focused field mid-typing. `editorRefs` holds the reused nodes; clear it when the selection changes.
 
 **i18n** — Astro's `i18n` config with `prefixDefaultLocale: false`: English at `/`, Arabic at `/ar/`.
 Both routes are near-identical thin shells that instantiate `DamascusTransitApp` with a `locale`.
@@ -65,5 +78,12 @@ static shell (`#map`, `#line-list`, `#line-editor`, buttons) that the app script
   map-level `mousemove`/`mouseup` with a 4px threshold, to keep a plain click from being read as a drag.
 - **Import merges, never replaces.** `mergeTransitData()` appends imported lines, skipping ones whose
   name collides, and remaps colliding ids.
+- **Filters are view-only.** Search text, the filter chip, and `hiddenLineIds` narrow what is drawn
+  and listed; they never touch stored data. `visibleLines()` is the single source for both.
+- **UI state lives in the URL.** `line`, `q`, `filter`, and `geom` are synced via `replaceState`, so
+  a view is shareable. `restoreFromUrl()` runs before data loads, so a `line` id is re-validated once
+  data arrives.
+- **Interchange counting is per line, not per stop id.** A stop repeated within one line (a branch
+  revisiting it) must not count as an interchange — `interchangeIds()` de-dupes each line's ids first.
 - **Two deploy targets.** `.github/workflows/deploy.yml` builds to GitHub Pages; the Vercel adapter
   targets Vercel. Only Vercel supports the SSR API route and Blob persistence.
