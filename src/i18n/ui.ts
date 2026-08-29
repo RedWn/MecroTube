@@ -1,4 +1,4 @@
-import type { Locale } from './types';
+import type { Locale } from '../lib/types';
 
 export const dictionaries = {
   en: {

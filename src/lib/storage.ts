@@ -1,4 +1,4 @@
-import type { TransitData } from './types';
+import type { TransitData, TransitLine } from './types';
 
 /**
  * Validates that a parsed JSON value has the shape of TransitData.
