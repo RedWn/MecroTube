@@ -52,6 +52,7 @@ export class DamascusTransitApp {
 
   private lineLayers = new Map<string, L.Polyline>();
   private stopMarkers = new Map<string, L.CircleMarker>();
+  private arrowMarkers: L.Marker[] = [];
   private dragTarget: { marker: L.CircleMarker; stop: Stop; startPoint: L.Point; moved: boolean } | null = null;
 
   private sidebarEl: HTMLElement;
@@ -133,7 +134,14 @@ export class DamascusTransitApp {
   }
 
   private save() {
+    this.cleanupOrphanStops();
     saveToServer(this.data);
+  }
+
+  /** Removes stops that are not referenced by any line. */
+  private cleanupOrphanStops() {
+    const used = new Set(this.data.lines.flatMap((l) => l.stopIds));
+    this.data.stops = this.data.stops.filter((s) => used.has(s.id));
   }
 
   private stopName(stop: Stop): string {
@@ -161,6 +169,7 @@ export class DamascusTransitApp {
   }
 
   private renderAll() {
+    this.cleanupOrphanStops();
     this.renderMap();
     this.renderSidebar();
     this.renderEditor();
@@ -169,70 +178,110 @@ export class DamascusTransitApp {
   private renderMap() {
     for (const layer of this.lineLayers.values()) layer.remove();
     for (const marker of this.stopMarkers.values()) marker.remove();
+    for (const arrow of this.arrowMarkers) arrow.remove();
     this.lineLayers.clear();
     this.stopMarkers.clear();
+    this.arrowMarkers = [];
 
     const interchanges = this.interchangeIds();
+    const selected = this.data.lines.find((l) => l.id === this.selectedLineId);
 
-    for (const line of this.data.lines) {
-      if (this.selectedLineId && line.id !== this.selectedLineId) continue;
+    const drawLine = (line: TransitLine) => {
       const stops = this.stopsForLine(line);
-      if (stops.length < 2) continue;
+      if (stops.length < 2) return;
       const latlngs: [number, number][] = stops.map((s) => [s.lat, s.lng]);
       if (line.loop) latlngs.push(latlngs[0]);
       const polyline = L.polyline(latlngs, {
         color: line.color,
-        weight: 8,
+        weight: line.id === this.selectedLineId ? 14 : 8,
         opacity: 1,
         lineCap: 'round',
         lineJoin: 'round',
       }).addTo(this.map);
       polyline.on('click', () => this.selectLine(line.id));
       this.lineLayers.set(line.id, polyline);
-    }
+      if (line.id === this.selectedLineId) this.addLineArrows(latlngs);
+    };
 
-    // draw stop markers on top
-    const drawnStopIds = new Set<string>();
+    // Lines are always visible. The selected line is drawn last so it stays on top.
     for (const line of this.data.lines) {
-      if (this.selectedLineId && line.id !== this.selectedLineId) continue;
-      for (const stop of this.stopsForLine(line)) {
-        if (drawnStopIds.has(stop.id)) continue;
-        drawnStopIds.add(stop.id);
-        const isInterchange = interchanges.has(stop.id);
-        const marker = L.circleMarker([stop.lat, stop.lng], {
-          radius: isInterchange ? 8 : 5,
-          color: '#111',
-          weight: isInterchange ? 2.5 : 2,
-          fillColor: '#fff',
-          fillOpacity: 1,
-        }).addTo(this.map);
-
-        if (this.selectedLineId) {
-          marker.bindTooltip(this.stopName(stop), {
-            permanent: true,
-            direction: 'right',
-            offset: [8, 0],
-            className: 'stop-label',
-          });
-        }
-
-        marker.on('click', (ev: L.LeafletMouseEvent) => {
-          L.DomEvent.stopPropagation(ev);
-          this.handleStopClick(stop.id);
-        });
-
-        // Leaflet CircleMarker doesn't support dragging out of the box; use manual drag for edit mode.
-        if (this.selectedLineId && this.addingStops) {
-          marker.on('mousedown', (ev: L.LeafletMouseEvent) => {
-            L.DomEvent.stopPropagation(ev);
-            this.dragTarget = { marker, stop, startPoint: this.map.latLngToLayerPoint(ev.latlng), moved: false };
-            this.map.dragging.disable();
-          });
-        }
-
-        this.stopMarkers.set(stop.id, marker);
-      }
+      if (line.id === this.selectedLineId) continue;
+      drawLine(line);
     }
+    if (selected) drawLine(selected);
+
+    // Stop circles are always visible. Names only appear for the selected
+    // line being viewed/edited (or the new line being built).
+    const drawnStopIds = new Set<string>();
+    for (const stop of this.data.stops) {
+      if (drawnStopIds.has(stop.id)) continue;
+      drawnStopIds.add(stop.id);
+      const isInterchange = interchanges.has(stop.id);
+      const marker = L.circleMarker([stop.lat, stop.lng], {
+        radius: isInterchange ? 8 : 5,
+        color: '#111',
+        weight: isInterchange ? 2.5 : 2,
+        fillColor: '#fff',
+        fillOpacity: 1,
+      }).addTo(this.map);
+
+      const isOnSelectedLine = selected ? this.stopsForLine(selected).some((s) => s.id === stop.id) : false;
+      if (isOnSelectedLine) {
+        marker.bindTooltip(this.stopName(stop), {
+          permanent: true,
+          direction: 'right',
+          offset: [8, 0],
+          className: 'stop-label',
+        });
+      }
+
+      marker.on('click', (ev: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(ev);
+        this.handleStopClick(stop.id);
+      });
+
+      // Leaflet CircleMarker doesn't support dragging out of the box; use manual drag for edit mode.
+      if (selected && isOnSelectedLine && this.addingStops) {
+        marker.on('mousedown', (ev: L.LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(ev);
+          this.dragTarget = { marker, stop, startPoint: this.map.latLngToLayerPoint(ev.latlng), moved: false };
+          this.map.dragging.disable();
+        });
+      }
+
+      this.stopMarkers.set(stop.id, marker);
+    }
+  }
+
+  /** Adds a small arrow at the midpoint of each segment, oriented along the line's direction. */
+  private addLineArrows(latlngs: [number, number][]) {
+    for (let i = 0; i < latlngs.length - 1; i++) {
+      const a = latlngs[i];
+      const b = latlngs[i + 1];
+      const deg = this.bearing(a, b);
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const icon = L.divIcon({
+        className: 'line-arrow',
+        html: `<span class="line-arrow-inner" style="transform: rotate(${deg}deg)"></span>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      });
+      const arrow = L.marker(mid, { icon, interactive: false });
+      arrow.addTo(this.map);
+      this.arrowMarkers.push(arrow);
+    }
+  }
+
+  /** Compass bearing in degrees from a to b, measured clockwise from north. */
+  private bearing(a: [number, number], b: [number, number]): number {
+    const rad = (d: number) => (d * Math.PI) / 180;
+    const deg = (r: number) => (r * 180) / Math.PI;
+    const lat1 = rad(a[0]);
+    const lat2 = rad(b[0]);
+    const dLng = rad(b[1] - a[1]);
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    return (deg(Math.atan2(y, x)) + 360) % 360;
   }
 
   private handleMapClick(e: L.LeafletMouseEvent) {
