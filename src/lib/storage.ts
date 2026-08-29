@@ -50,21 +50,44 @@ function uniqueId(prefix: string, taken: Set<string>): string {
   return id;
 }
 
+/** True when two lines share a non-empty English or Arabic name. */
+function sameLineName(a: TransitLine, b: TransitLine): boolean {
+  return (
+    (Boolean(a.nameEn) && a.nameEn === b.nameEn) || (Boolean(a.nameAr) && a.nameAr === b.nameAr)
+  );
+}
+
 /**
  * Merges imported data into the current data, appending its stops and lines
- * rather than replacing anything. If an imported stop/line id collides with
- * an id already in use, it is given a new unique id (and any references to
- * it, e.g. a line's stopIds, are updated accordingly) so nothing is
- * overwritten or corrupted.
+ * rather than replacing anything. Imported lines whose name already exists
+ * (in the current data or among previously kept imports) are skipped, along
+ * with any stops they exclusively reference. If an imported stop/line id
+ * collides with an id already in use, it is given a new unique id (and any
+ * references to it, e.g. a line's stopIds, are updated accordingly) so
+ * nothing is overwritten or corrupted.
  */
 export function mergeTransitData(current: TransitData, imported: TransitData): TransitData {
   const stopIds = new Set(current.stops.map((s) => s.id));
   const lineIds = new Set(current.lines.map((l) => l.id));
 
+  // Keep only imported lines whose name doesn't clash with an existing line
+  // or with another imported line that was already kept.
+  const keptContext: TransitLine[] = [...current.lines];
+  const keptImportedLines: TransitLine[] = [];
+  for (const line of imported.lines) {
+    if (keptContext.some((c) => sameLineName(line, c))) continue;
+    keptContext.push(line);
+    keptImportedLines.push(line);
+  }
+
+  // Only import stops that are referenced by a kept line.
+  const usedStopIds = new Set(keptImportedLines.flatMap((l) => l.stopIds));
+  const keptStops = imported.stops.filter((s) => usedStopIds.has(s.id));
+
   const stopIdMap = new Map<string, string>();
   const mergedStops = [
     ...current.stops,
-    ...imported.stops.map((stop) => {
+    ...keptStops.map((stop) => {
       const id = stopIds.has(stop.id) ? uniqueId('stop', stopIds) : (stopIds.add(stop.id), stop.id);
       stopIdMap.set(stop.id, id);
       return { ...stop, id };
@@ -73,7 +96,7 @@ export function mergeTransitData(current: TransitData, imported: TransitData): T
 
   const mergedLines = [
     ...current.lines,
-    ...imported.lines.map((line) => {
+    ...keptImportedLines.map((line) => {
       const id = lineIds.has(line.id) ? uniqueId('line', lineIds) : (lineIds.add(line.id), line.id);
       return {
         ...line,
