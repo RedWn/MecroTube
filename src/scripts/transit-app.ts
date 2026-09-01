@@ -104,10 +104,10 @@ export class DamascusTransitApp {
   private geometryMode: GeometryMode = 'straight';
 
   private lineLayers = new Map<string, L.Polyline>();
-  private stopMarkers = new Map<string, L.CircleMarker>();
+  private stopMarkers = new Map<string, L.Marker>();
   private arrowMarkers: L.Marker[] = [];
   private dragTarget: {
-    marker: L.CircleMarker;
+    marker: L.Marker;
     stop: Stop;
     startPoint: L.Point;
     moved: boolean;
@@ -434,6 +434,12 @@ export class DamascusTransitApp {
     // A newer render started while routing resolved; discard this one.
     if (seq !== this.routeSeq) return;
 
+    /** stop id -> {deg, color, terminus} for the arrow drawn on that stop. */
+    const stopHeadings = new Map<
+      string,
+      { deg: number; color: string; terminus: boolean; headings: number[] }
+    >();
+
     order.forEach((line, i) => {
       const latlngs = geometries[i];
       if (!latlngs || latlngs.length < 2) return;
@@ -461,7 +467,9 @@ export class DamascusTransitApp {
 
       polyline.on('click', () => this.selectLine(line.id));
       this.lineLayers.set(line.id, polyline);
-      if (isSel) this.addLineArrows(latlngs, line.color, line.loop);
+      // Record each stop's heading along this route so the stop markers below
+      // can carry the direction arrow themselves.
+      this.collectStopHeadings(latlngs, this.stopsForLine(line), line, stopHeadings);
     });
 
     // Only stops belonging to a visible line are drawn.
@@ -473,16 +481,46 @@ export class DamascusTransitApp {
       const isInterchange = interchanges.has(stop.id);
       const onSelected = selectedStopIds.has(stop.id);
 
-      const marker = L.circleMarker([stop.lat, stop.lng], {
-        radius: isInterchange ? 7 : 5,
-        color: '#111',
-        weight: isInterchange ? 2.5 : 2,
-        fillColor: '#fff',
-        // Fade stops that aren't on the focused route.
-        opacity: selected && !onSelected ? 0.4 : 1,
-        fillOpacity: selected && !onSelected ? 0.5 : 1,
-        // Drives which stops the zoom-detail rules keep visible.
-        className: isInterchange ? 'stop-dot is-interchange' : 'stop-dot',
+      const head = stopHeadings.get(stop.id);
+      const dim = selected && !onSelected;
+
+      // The stop is a divIcon rather than a circleMarker so the direction arrow
+      // can live inside it. Leaflet draws divIcons in the marker pane, above the
+      // SVG pane that holds circle markers, so a separate arrow overlay would be
+      // hidden behind the stop; combining them keeps one element per stop.
+      const twoWayStop = head ? this.isBidirectional(head.headings) : false;
+      const classes = [
+        'stop-dot',
+        isInterchange ? 'is-interchange' : '',
+        head ? 'has-arrow' : '',
+        // A two-way stop keeps its disc round: it is not a terminus even when
+        // the route's last visit to it happens to be the final stop.
+        head?.terminus && !twoWayStop ? 'is-terminus' : '',
+        twoWayStop ? 'is-twoway' : '',
+        dim ? 'is-dim' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      // A stop served in both directions gets a double-headed glyph rather
+      // than a single arrowhead, which could only show one of the two flows.
+      const inner = head
+        ? twoWayStop
+          ? `<span class="stop-arrow-both" style="transform: rotate(${head.deg}deg)"></span>`
+          : `<span class="stop-arrow-glyph" style="transform: rotate(${head.deg}deg)"></span>`
+        : '';
+      const bg = head ? head.color : '#fff';
+      // Two-way glyphs need room for both heads; interchanges are already large.
+      const size = isInterchange || twoWayStop ? 20 : 16;
+
+      const marker = L.marker([stop.lat, stop.lng], {
+        icon: L.divIcon({
+          className: 'stop-icon',
+          html: `<span class="${classes}" style="background:${bg}">${inner}</span>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        }),
+        keyboard: false,
       }).addTo(this.map);
 
       // Names show on hover only. Labelling every stop of the selected line at
@@ -537,72 +575,144 @@ export class DamascusTransitApp {
    * flows into parallel lanes. The shift is applied in screen pixels before
    * the rotation, so it stays a constant visual gap at every zoom level.
    */
-  private addLineArrows(latlngs: LatLng[], color: string, loop: boolean) {
-    if (latlngs.length < 2) return;
+  /**
+   * Records the direction each stop is departed in, keyed by stop id, so the
+   * stop markers can carry the arrow themselves.
+   *
+   * Arrows spread along a route are ambiguous where it doubles back: outbound
+   * and return lie on the same pixels, so two arrows point at each other.
+   * One arrow per stop, oriented along the way the route leaves it, stays
+   * centred on the line and unambiguous. Drawing it as part of the stop marker
+   * (rather than a separate overlay) also avoids Leaflet's marker pane
+   * covering it: divIcons render above the SVG pane holding circle markers.
+   */
+  private collectStopHeadings(
+    latlngs: LatLng[],
+    stops: Stop[],
+    line: TransitLine,
+    out: Map<string, { deg: number; color: string; terminus: boolean; headings: number[] }>,
+  ) {
+    if (latlngs.length < 2 || stops.length === 0) return;
 
-    /** Sideways nudge, in CSS pixels, from the centre of the line. */
-    const OFFSET_PX = 7;
-    const step = Math.max(1, Math.floor(latlngs.length / 14));
+    /**
+     * Index of the path vertex closest to a stop, searched forward from `from`.
+     * A line may visit the same stop twice (an out-and-back, or a branch
+     * revisiting it); scanning from the previous stop's vertex resolves each
+     * visit to its own pass rather than collapsing them onto the first match.
+     */
+    const nearestIndex = (pt: LatLng, from: number): number => {
+      let best = from;
+      let bestD = Infinity;
+      for (let i = from; i < latlngs.length; i++) {
+        const dLat = latlngs[i][0] - pt[0];
+        const dLng = latlngs[i][1] - pt[1];
+        const d = dLat * dLat + dLng * dLng;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      return best;
+    };
 
-    for (let i = step; i < latlngs.length - 1; i += step) {
-      const at = latlngs[i];
-      const prev = latlngs[i - 1];
-      const next = latlngs[i + 1];
-      // Local heading across the vertex keeps the arrow tangent to the path.
-      if (prev[0] === next[0] && prev[1] === next[1]) continue;
-      const deg = this.bearing(prev, next);
+    /**
+     * Heading of the route at a vertex, sampled far enough ahead to clear the
+     * centimetre-scale gaps between consecutive road vertices.
+     */
+    const same = (a: LatLng, b: LatLng) => a[0] === b[0] && a[1] === b[1];
 
-      // translateX runs in the rotated frame, so +X is always "right of
-      // travel" regardless of which way the segment heads.
-      const html =
-        `<span class="line-arrow-inner" style="transform: rotate(${deg}deg) translateX(${OFFSET_PX}px); ` +
-        `border-bottom-color: ${color}"></span>`;
+    /** Rough metres between two points; good enough for a distance threshold. */
+    const metres = (a: LatLng, b: LatLng) => {
+      const dy = (b[0] - a[0]) * 111320;
+      const dx = (b[1] - a[1]) * 111320 * Math.cos((a[0] * Math.PI) / 180);
+      return Math.hypot(dx, dy);
+    };
 
-      const arrow = L.marker(at, {
-        icon: L.divIcon({ className: 'line-arrow', html, iconSize: [18, 18], iconAnchor: [9, 9] }),
-        interactive: false,
-        keyboard: false,
-      });
-      arrow.addTo(this.map);
-      this.arrowMarkers.push(arrow);
-    }
+    /**
+     * First vertex from `idx` (walking in `dir`) far enough away to give a
+     * stable bearing. Consecutive road vertices are often centimetres apart,
+     * so the nearest distinct one would yield a meaningless heading; fall back
+     * to any distinct vertex when the path is too short to reach MIN_SPAN.
+     */
+    const MIN_SPAN_M = 25;
+    const distinctFrom = (idx: number, dir: 1 | -1): number | null => {
+      let fallback: number | null = null;
+      for (let i = idx + dir; i >= 0 && i < latlngs.length; i += dir) {
+        if (same(latlngs[i], latlngs[idx])) continue;
+        if (fallback === null) fallback = i;
+        if (metres(latlngs[idx], latlngs[i]) >= MIN_SPAN_M) return i;
+      }
+      return fallback;
+    };
 
-    // Terminus arrowhead, kept on the centreline so the endpoint stays exact.
-    const end = latlngs[latlngs.length - 1];
-    // Look back far enough for a stable heading: the last road vertices are
-    // often centimetres apart, which yields a meaningless bearing.
-    const back = latlngs[Math.max(0, latlngs.length - 4)];
-    if (back[0] !== end[0] || back[1] !== end[1]) {
-      const deg = this.bearing(back, end);
-      const head = L.marker(end, {
-        icon: L.divIcon({
-          className: 'line-arrow',
-          html: `<span class="line-arrow-inner is-terminus" style="transform: rotate(${deg}deg); border-bottom-color: ${color}"></span>`,
-          iconSize: [20, 20],
-          iconAnchor: [10, 10],
-        }),
-        interactive: false,
-        keyboard: false,
-      });
-      head.addTo(this.map);
-      this.arrowMarkers.push(head);
-    }
+    const headingAt = (idx: number, arriving = false): number | null => {
+      // A terminus has no onward leg, so it reports the heading it arrived on.
+      // Otherwise take the outgoing heading, falling back to the incoming one
+      // at the end of the path. Consecutive road vertices can be centimetres
+      // apart or exactly coincident, so scan for the first that actually
+      // differs rather than sampling a fixed distance ahead.
+      const order: (1 | -1)[] = arriving ? [-1, 1] : [1, -1];
+      for (const dir of order) {
+        const other = distinctFrom(idx, dir);
+        if (other === null) continue;
+        return dir === 1
+          ? this.bearing(latlngs[idx], latlngs[other])
+          : this.bearing(latlngs[other], latlngs[idx]);
+      }
+      return null;
+    };
 
-    // A loop returns to its origin, so a start dot would sit under the
-    // arrowhead; only mark the origin on an open route.
-    if (loop) return;
-    const start = L.marker(latlngs[0], {
-      icon: L.divIcon({
-        className: 'line-arrow',
-        html: `<span class="line-start-dot" style="background: ${color}"></span>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6],
-      }),
-      interactive: false,
-      keyboard: false,
+    // Advances with each stop so repeated visits map to distinct vertices.
+    let cursor = 0;
+
+    stops.forEach((stop, i) => {
+      const isLast = i === stops.length - 1;
+      // On a loop the last stop continues back to the first, so it is not a terminus.
+      const terminus = isLast && !line.loop;
+      const idx = nearestIndex([stop.lat, stop.lng], cursor);
+      // Advance past this vertex so a repeated stop resolves to its next visit,
+      // but never past the final vertex or later stops would have nowhere left.
+      cursor = Math.min(idx + 1, latlngs.length - 1);
+      const deg = headingAt(idx, terminus);
+      if (deg === null) return;
+
+      const existing = out.get(stop.id);
+      if (!existing) {
+        out.set(stop.id, { deg, color: line.color, terminus, headings: [deg] });
+        return;
+      }
+
+      // A stop can be served more than once: an out-and-back visits it twice,
+      // and separate lines may share it. Keep every heading so opposing ones
+      // can be detected below rather than silently overwriting each other.
+      existing.headings.push(deg);
+
+      // The selected line still owns the colour and terminus styling.
+      if (line.id === this.selectedLineId) {
+        existing.color = line.color;
+        existing.deg = deg;
+        existing.terminus = terminus;
+      }
     });
-    start.addTo(this.map);
-    this.arrowMarkers.push(start);
+  }
+
+  /**
+   * True when a stop's recorded headings include two that run roughly opposite
+   * — the signature of a stop served in both directions (an out-and-back, or
+   * two lines sharing it). Such a stop gets a bidirectional glyph instead of a
+   * single arrowhead, which would otherwise show only one of the two flows.
+   */
+  private isBidirectional(headings: number[]): boolean {
+    const OPPOSED_TOLERANCE = 45;
+    for (let i = 0; i < headings.length; i++) {
+      for (let j = i + 1; j < headings.length; j++) {
+        // Angular separation folded into 0..180: 0 is identical, 180 opposite.
+        const raw = Math.abs(headings[i] - headings[j]) % 360;
+        const sep = raw > 180 ? 360 - raw : raw;
+        if (sep >= 180 - OPPOSED_TOLERANCE) return true;
+      }
+    }
+    return false;
   }
 
   /** Compass bearing in degrees from a to b, measured clockwise from north. */

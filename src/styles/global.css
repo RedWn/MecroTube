@@ -814,35 +814,92 @@ html[dir='rtl'] .search-field input {
   border: none;
 }
 
-/* Direction arrows. Tinted to the route colour and outlined so they stay
-   readable where they overlap the line. Rotation and the sideways offset are
-   set inline per arrow; transform-origin must stay centred for that to hold. */
-.line-arrow-inner {
+/* A stop is one divIcon carrying its own direction arrow: a disc filled with
+   the route colour and a white arrowhead pointing the way the route leaves.
+   Centred on the line, so a two-way road reads correctly without offsetting.
+   Combining them matters — Leaflet draws divIcons in the marker pane, above
+   the SVG pane, so a separate arrow overlay would sit behind the stop. */
+.stop-icon {
+  background: none;
+  border: none;
+}
+
+.stop-dot {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  transition: opacity var(--dur) var(--ease);
+}
+
+/* Interchanges carry a heavier ring, as on a printed diagram. */
+.stop-dot.is-interchange {
+  border-width: 3px;
+}
+
+/* The final stop of an open route: squared off to read as a terminus. */
+.stop-dot.is-terminus {
+  border-radius: 5px;
+}
+
+/* Stops on a route other than the focused one recede. */
+.stop-dot.is-dim {
+  opacity: 0.45;
+}
+
+.stop-arrow-glyph {
   display: block;
   width: 0;
   height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 9px solid var(--text);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #fff;
   transform-origin: center;
-  filter: drop-shadow(0 0 1.5px var(--panel)) drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
 }
 
-/* The endpoint marker is larger, since it terminates the route. */
-.line-arrow-inner.is-terminus {
-  border-left-width: 8px;
-  border-right-width: 8px;
-  border-bottom-width: 14px;
-}
-
-/* Origin marker on open (non-loop) routes. */
-.line-start-dot {
+/* Served in both directions: a double-headed arrow along the road axis,
+   rather than a single head that could only show one of the two flows. */
+.stop-arrow-both {
   display: block;
-  width: 12px;
+  position: relative;
+  width: 2px;
   height: 12px;
-  border-radius: 50%;
-  border: 2.5px solid var(--panel);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  background: #fff;
+  border-radius: 1px;
+  transform-origin: center;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
+}
+
+.stop-arrow-both::before,
+.stop-arrow-both::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+}
+
+.stop-arrow-both::before {
+  top: -4px;
+  transform: translateX(-50%);
+  border-bottom: 5px solid #fff;
+}
+
+.stop-arrow-both::after {
+  bottom: -4px;
+  transform: translateX(-50%);
+  border-top: 5px solid #fff;
+}
+
+/* A two-way stop reads as a through-stop, so it keeps a wider ring. */
+.stop-dot.is-twoway {
+  border-width: 3px;
 }
 
 /* Leaflet surfaces adopt the app palette so the map doesn't read as foreign. */
@@ -872,16 +929,12 @@ html[dir='rtl'] .search-field input {
   color: var(--text-dim) !important;
 }
 
-/* Zoom-dependent detail. Stop circles clutter the view once the whole city is
-   in frame, so they fade out as you zoom away; interchanges persist one level
+/* Zoom-dependent detail. Stops clutter the view once the whole city is in
+   frame, so they fade out as you zoom away; interchanges persist one level
    longer, and editing always restores everything. Fading rather than removing
    keeps markers in the DOM, so no re-render or re-route is needed. */
-.stop-dot {
-  transition: opacity var(--dur) var(--ease);
-}
-
-.map[data-detail='interchange'] .stop-dot:not(.is-interchange),
-.map[data-detail='lines'] .stop-dot {
+.map[data-detail='interchange'] .stop-icon:not(:has(.is-interchange)),
+.map[data-detail='lines'] .stop-icon {
   opacity: 0;
   pointer-events: none;
 }
