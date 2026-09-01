@@ -6,14 +6,26 @@ import Layout from '../../layouts/Layout.astro';
     import 'leaflet/dist/leaflet.css';
     import { DamascusTransitApp } from '../../scripts/transit-app';
 
-    const mapEl = document.getElementById('map')!;
-    const sidebarEl = document.getElementById('line-list')!;
-    const editorEl = document.getElementById('line-editor')!;
-    const addLineBtn = document.getElementById('add-line-btn') as HTMLButtonElement;
-    const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
-    const importBtn = document.getElementById('import-btn') as HTMLButtonElement;
-    const importInput = document.getElementById('import-input') as HTMLInputElement;
+    const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-    new DamascusTransitApp({ mapEl, sidebarEl, editorEl, addLineBtn, exportBtn, importBtn, importInput, locale: 'ar' });
+    new DamascusTransitApp({
+      mapEl: byId('map'),
+      sidebarEl: byId('line-list'),
+      editorEl: byId('line-editor'),
+      addLineBtn: byId<HTMLButtonElement>('add-line-btn'),
+      exportBtn: byId<HTMLButtonElement>('export-btn'),
+      importBtn: byId<HTMLButtonElement>('import-btn'),
+      importInput: byId<HTMLInputElement>('import-input'),
+      searchInput: byId<HTMLInputElement>('search-input'),
+      filterChips: byId('filter-chips'),
+      filterMeta: byId('filter-meta'),
+      geomBtn: byId<HTMLButtonElement>('geom-btn'),
+      tilesBtn: byId<HTMLButtonElement>('tiles-btn'),
+      themeBtn: byId<HTMLButtonElement>('theme-btn'),
+      stopDialog: byId<HTMLDialogElement>('stop-dialog'),
+      confirmDialog: byId<HTMLDialogElement>('confirm-dialog'),
+      toastRegion: byId('toast-region'),
+      locale: 'ar',
+    });
   </script>
 </Layout>
