@@ -9,12 +9,12 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "start": "node ./dist/server/entry.mjs",
     "astro": "astro"
   },
   "dependencies": {
+    "better-sqlite3": "^12.4.1",
     "@astrojs/node": "^11.1.4",
-    "@astrojs/vercel": "^11.0.8",
-    "@vercel/blob": "^2.8.0",
     "astro": "^7.2.7",
     "leaflet": "^1.9.4"
   },
@@ -22,6 +22,7 @@
     "@types/leaflet": "^1.9.12"
   },
   "allowScripts": {
-    "esbuild": true
+    "esbuild": true,
+    "better-sqlite3": true
   }
 }

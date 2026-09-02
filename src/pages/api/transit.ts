@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getServerData, writeServerData } from '../../lib/server-data';
 import { parseTransitData } from '../../lib/storage';
+import { isAuthenticated } from '../../lib/auth';
 
 export const prerender = false;
 
@@ -11,6 +12,12 @@ export const GET: APIRoute = async () => {
 };
 
 export const PUT: APIRoute = async ({ request }) => {
+  if (!isAuthenticated(request)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: jsonHeaders,
+    });
+  }
   let raw: unknown;
   try {
     raw = await request.json();

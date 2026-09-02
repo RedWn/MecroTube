@@ -5,21 +5,26 @@ import '../styles/global.css';
 
 interface Props {
   locale: Locale;
+  mode?: 'view' | 'admin';
 }
 
-const { locale } = Astro.props as Props;
+const { locale, mode = 'view' } = Astro.props as Props;
 const dict = dictionaries[locale];
 const dir = locale === 'ar' ? 'rtl' : 'ltr';
-const base = import.meta.env.BASE_URL;
-const otherHref = locale === 'ar' ? base : `${base.replace(/\/$/, '')}/ar/`;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const prefix = locale === 'ar' ? `${base}/ar` : base;
+const otherLocaleHref = locale === 'ar' ? `${base}${mode === 'admin' ? '/admin' : ''}/` : `${base}/ar${mode === 'admin' ? '/admin' : ''}/`;
+const modeSwitchHref = mode === 'admin' ? `${prefix}/` : `${prefix}/admin/`;
+const modeSwitchLabel = mode === 'admin' ? dict.viewMap : dict.admin;
+const pageTitle = mode === 'admin' ? `${dict.title} — ${dict.admin}` : dict.title;
 ---
 <!doctype html>
 <html lang={locale} dir={dir}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href={`${base.replace(/\/$/, '')}/favicon.svg`} />
-    <title>{dict.title}</title>
+    <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+    <title>{pageTitle}</title>
   </head>
   <body>
     <div id="app">
@@ -28,25 +33,42 @@ const otherHref = locale === 'ar' ? base : `${base.replace(/\/$/, '')}/ar/`;
           <h1>{dict.title}</h1>
           <p class="subtitle">{dict.subtitle}</p>
         </div>
-        <a class="lang-switch" href={otherHref}>{dict.langSwitch}</a>
+        <nav class="header-nav">
+          <a class="nav-link" href={modeSwitchHref}>{modeSwitchLabel}</a>
+          <a class="nav-link" href={otherLocaleHref}>{dict.langSwitch}</a>
+          {mode === 'admin' && <button id="logout-btn" class="nav-link nav-btn" type="button">{dict.logout}</button>}
+        </nav>
       </header>
       <div class="layout">
         <aside class="sidebar">
           <div class="sidebar-header">
             <h2>{dict.lines}</h2>
-            <button id="add-line-btn" class="btn btn-primary">{dict.addLine}</button>
+            {mode === 'admin' && <button id="add-line-btn" class="btn btn-primary">{dict.addLine}</button>}
           </div>
           <ul id="line-list" class="line-list"></ul>
-          <div id="line-editor" class="editor-panel" hidden></div>
-          <div class="data-actions">
-            <button id="export-btn" class="btn btn-link">{dict.exportData}</button>
-            <button id="import-btn" class="btn btn-link">{dict.importData}</button>
-            <input id="import-input" type="file" accept="application/json,.json" hidden />
-          </div>
+          {mode === 'admin' && (
+            <>
+              <div id="line-editor" class="editor-panel" hidden></div>
+              <div class="data-actions">
+                <button id="export-btn" class="btn btn-link">{dict.exportData}</button>
+                <button id="import-btn" class="btn btn-link">{dict.importData}</button>
+                <input id="import-input" type="file" accept="application/json,.json" hidden />
+              </div>
+            </>
+          )}
         </aside>
         <main id="map" class="map"></main>
       </div>
     </div>
     <slot />
+    {mode === 'admin' && (
+      <script>
+        const logoutBtn = document.getElementById('logout-btn');
+        logoutBtn?.addEventListener('click', async () => {
+          await fetch('/api/admin-auth', { method: 'DELETE' });
+          window.location.href = '/';
+        });
+      </script>
+    )}
   </body>
 </html>
