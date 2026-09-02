@@ -40,6 +40,8 @@ export const dictionaries = {
     loginSubtitle: 'Enter the admin password to manage lines.',
     loginInvalid: 'Incorrect password.',
     loginButton: 'Log in',
+    menu: 'Menu',
+    linesToggle: 'Lines',
   },
   ar: {
     title: 'خريطة مواصلات دمشق',
@@ -80,6 +82,8 @@ export const dictionaries = {
     loginSubtitle: 'أدخل كلمة مرور الإدارة لإدارة الخطوط.',
     loginInvalid: 'كلمة المرور غير صحيحة.',
     loginButton: 'تسجيل الدخول',
+    menu: 'القائمة',
+    linesToggle: 'الخطوط',
   },
 } satisfies Record<Locale, Record<string, string>>;
 

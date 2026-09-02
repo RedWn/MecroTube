@@ -1,12 +1,48 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { TransitData } from './types';
-import { parseTransitData } from './storage';
 
 const DB_FILE = path.resolve(process.cwd(), 'data', 'transit.db');
 
-const EMPTY_DATA: TransitData = { stops: [], lines: [] };
+const EMPTY_DATA = { stops: [], lines: [] };
+
+/**
+ * Validates that a parsed JSON value has the shape of TransitData.
+ * Returns the data (unchanged) if valid, otherwise null.
+ */
+export function parseTransitData(value) {
+  if (!value || typeof value !== 'object') return null;
+  const data = value;
+  if (!Array.isArray(data.stops) || !Array.isArray(data.lines)) return null;
+
+  const stopsValid = data.stops.every(
+    (s) =>
+      s &&
+      typeof s === 'object' &&
+      typeof s.id === 'string' &&
+      typeof s.nameEn === 'string' &&
+      typeof s.nameAr === 'string' &&
+      typeof s.lat === 'number' &&
+      typeof s.lng === 'number',
+  );
+  if (!stopsValid) return null;
+
+  const linesValid = data.lines.every(
+    (l) =>
+      l &&
+      typeof l === 'object' &&
+      typeof l.id === 'string' &&
+      typeof l.nameEn === 'string' &&
+      typeof l.nameAr === 'string' &&
+      typeof l.color === 'string' &&
+      typeof l.loop === 'boolean' &&
+      Array.isArray(l.stopIds) &&
+      l.stopIds.every((id) => typeof id === 'string'),
+  );
+  if (!linesValid) return null;
+
+  return data;
+}
 
 const db = initDb();
 const selectData = db.prepare('SELECT payload FROM app_state WHERE id = 1');
@@ -15,9 +51,9 @@ const upsertData = db.prepare(
 );
 
 /** Returns the persisted data, or empty data when nothing has been stored yet. */
-export async function getServerData(): Promise<TransitData> {
+export function getServerData() {
   try {
-    const row = selectData.get() as { payload: string } | undefined;
+    const row = selectData.get();
     if (!row) return EMPTY_DATA;
     return parseTransitData(JSON.parse(row.payload)) ?? EMPTY_DATA;
   } catch (err) {
@@ -26,7 +62,7 @@ export async function getServerData(): Promise<TransitData> {
   }
 }
 
-export async function writeServerData(data: TransitData): Promise<TransitData> {
+export function writeServerData(data) {
   try {
     upsertData.run(JSON.stringify(data, null, 2));
     return data;
@@ -36,7 +72,7 @@ export async function writeServerData(data: TransitData): Promise<TransitData> {
   }
 }
 
-function initDb(): Database.Database {
+function initDb() {
   const dir = path.dirname(DB_FILE);
   mkdirSync(dir, { recursive: true });
   const database = new Database(DB_FILE);

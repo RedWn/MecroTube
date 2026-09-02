@@ -1,13 +1,13 @@
 import L from 'leaflet';
 import type { Stop, TransitLine, TransitData, Locale } from '../lib/types';
 import { exportDataAsJson, parseTransitData, mergeTransitData } from '../lib/storage';
+import { TRANSIT_API_URL } from '../lib/api';
 import { dictionaries } from '../i18n/ui';
 
 const DAMASCUS_CENTER: [number, number] = [33.5138, 36.2765];
 const LINE_COLORS = ['#0019A8', '#DA291C', '#00782A', '#F4A900', '#7B2D8E', '#00A6A6', '#E85D75', '#5C4033'];
 
-const BASE_URL = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
-const API_URL = `${BASE_URL}api/transit`;
+const API_URL = TRANSIT_API_URL;
 
 async function loadFromServer(): Promise<TransitData> {
   try {

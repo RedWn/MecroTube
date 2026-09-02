@@ -29,18 +29,24 @@ const pageTitle = mode === 'admin' ? `${dict.title} — ${dict.admin}` : dict.ti
   <body>
     <div id="app">
       <header class="app-header">
-        <div>
+        <div class="header-title">
           <h1>{dict.title}</h1>
           <p class="subtitle">{dict.subtitle}</p>
         </div>
-        <nav class="header-nav">
+        <button id="nav-toggle" class="icon-toggle" type="button" aria-label={dict.menu} aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <nav class="header-nav" id="header-nav">
           <a class="nav-link" href={modeSwitchHref}>{modeSwitchLabel}</a>
           <a class="nav-link" href={otherLocaleHref}>{dict.langSwitch}</a>
           {mode === 'admin' && <button id="logout-btn" class="nav-link nav-btn" type="button">{dict.logout}</button>}
         </nav>
       </header>
       <div class="layout">
-        <aside class="sidebar">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-expanded="false">
+          <span class="sidebar-toggle-icon">☰</span> {dict.linesToggle}
+        </button>
+        <aside class="sidebar" id="sidebar">
           <div class="sidebar-header">
             <h2>{dict.lines}</h2>
             {mode === 'admin' && <button id="add-line-btn" class="btn btn-primary">{dict.addLine}</button>}
@@ -61,11 +67,36 @@ const pageTitle = mode === 'admin' ? `${dict.title} — ${dict.admin}` : dict.ti
       </div>
     </div>
     <slot />
+    <script is:inline>
+      // Mobile menu toggles (no-ops on desktop where buttons are hidden).
+      // is:inline keeps this unbundled so it runs immediately without waiting
+      // for module resolution.
+      (function () {
+        var navToggle = document.getElementById('nav-toggle');
+        var headerNav = document.getElementById('header-nav');
+        if (navToggle && headerNav) {
+          navToggle.addEventListener('click', function () {
+            var open = headerNav.classList.toggle('open');
+            navToggle.setAttribute('aria-expanded', String(open));
+          });
+        }
+
+        var sidebarToggle = document.getElementById('sidebar-toggle');
+        var sidebar = document.getElementById('sidebar');
+        if (sidebarToggle && sidebar) {
+          sidebarToggle.addEventListener('click', function () {
+            var open = sidebar.classList.toggle('open');
+            sidebarToggle.setAttribute('aria-expanded', String(open));
+          });
+        }
+      })();
+    </script>
     {mode === 'admin' && (
       <script>
+        import { ADMIN_AUTH_API_URL } from '../lib/api';
         const logoutBtn = document.getElementById('logout-btn');
         logoutBtn?.addEventListener('click', async () => {
-          await fetch('/api/admin-auth', { method: 'DELETE' });
+          await fetch(ADMIN_AUTH_API_URL, { method: 'DELETE' });
           window.location.href = '/';
         });
       </script>

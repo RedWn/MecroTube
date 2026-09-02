@@ -1,12 +1,12 @@
 import L from 'leaflet';
 import type { Stop, TransitLine, TransitData, Locale } from '../lib/types';
 import { parseTransitData } from '../lib/storage';
+import { TRANSIT_API_URL } from '../lib/api';
 import { dictionaries } from '../i18n/ui';
 
 const DAMASCUS_CENTER: [number, number] = [33.5138, 36.2765];
 
-const BASE_URL = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
-const API_URL = `${BASE_URL}api/transit`;
+const API_URL = TRANSIT_API_URL;
 
 async function loadFromServer(): Promise<TransitData> {
   try {
@@ -106,6 +106,10 @@ export class DamascusTransitViewer {
     const interchanges = this.interchangeIds();
     const selected = this.data.lines.find((l) => l.id === this.selectedLineId);
 
+    // In view mode, selecting a line hides all other lines.
+    const visibleLines = selected ? [selected] : this.data.lines;
+    const visibleStopIds = new Set(visibleLines.flatMap((l) => l.stopIds));
+
     const drawLine = (line: TransitLine) => {
       const stops = this.stopsForLine(line);
       if (stops.length < 2) return;
@@ -126,7 +130,7 @@ export class DamascusTransitViewer {
       if (line.id === this.selectedLineId) this.addLineArrows(latlngs);
     };
 
-    for (const line of this.data.lines) {
+    for (const line of visibleLines) {
       if (line.id === this.selectedLineId) continue;
       drawLine(line);
     }
@@ -134,6 +138,7 @@ export class DamascusTransitViewer {
 
     const drawnStopIds = new Set<string>();
     for (const stop of this.data.stops) {
+      if (!visibleStopIds.has(stop.id)) continue;
       if (drawnStopIds.has(stop.id)) continue;
       drawnStopIds.add(stop.id);
       const isInterchange = interchanges.has(stop.id);

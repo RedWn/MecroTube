@@ -9,13 +9,12 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "start": "node ./dist/server/entry.mjs",
+    "api": "node ./server/index.mjs",
     "astro": "astro"
   },
   "dependencies": {
-    "better-sqlite3": "^12.4.1",
-    "@astrojs/node": "^11.1.4",
     "astro": "^7.2.7",
+    "better-sqlite3": "^12.4.1",
     "leaflet": "^1.9.4"
   },
   "devDependencies": {

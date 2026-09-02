@@ -6,9 +6,9 @@ const PASSWORD_FILE = path.resolve(process.cwd(), 'data', 'admin-password.txt');
 const SESSION_COOKIE = 'admin_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 
-const sessions = new Map<string, number>();
+const sessions = new Map();
 
-function readPassword(): string | null {
+function readPassword() {
   try {
     if (!existsSync(PASSWORD_FILE)) {
       mkdirSync(path.dirname(PASSWORD_FILE), { recursive: true });
@@ -23,8 +23,8 @@ function readPassword(): string | null {
   }
 }
 
-function parseCookies(header: string | null): Record<string, string> {
-  const out: Record<string, string> = {};
+function parseCookies(header) {
+  const out = {};
   if (!header) return out;
   for (const part of header.split(';')) {
     const idx = part.indexOf('=');
@@ -35,7 +35,7 @@ function parseCookies(header: string | null): Record<string, string> {
 }
 
 /** Returns a session token when the password matches, otherwise null. */
-export function login(password: string): string | null {
+export function login(password) {
   const expected = readPassword();
   if (!expected || password !== expected) return null;
   const token = randomBytes(32).toString('hex');
@@ -43,11 +43,11 @@ export function login(password: string): string | null {
   return token;
 }
 
-export function logout(token: string | undefined): void {
+export function logout(token) {
   if (token) sessions.delete(token);
 }
 
-export function isValidSession(token: string | undefined): boolean {
+export function isValidSession(token) {
   if (!token) return false;
   const expiry = sessions.get(token);
   if (!expiry) return false;
@@ -58,18 +58,18 @@ export function isValidSession(token: string | undefined): boolean {
   return true;
 }
 
-export function sessionFromRequest(request: Request): string | undefined {
-  return parseCookies(request.headers.get('cookie'))[SESSION_COOKIE];
+export function sessionFromHeaders(headers) {
+  return parseCookies(headers.cookie)[SESSION_COOKIE];
 }
 
-export function isAuthenticated(request: Request): boolean {
-  return isValidSession(sessionFromRequest(request));
+export function isAuthenticated(headers) {
+  return isValidSession(sessionFromHeaders(headers));
 }
 
-export function sessionCookieHeader(token: string): string {
+export function sessionCookieHeader(token) {
   return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}`;
 }
 
-export function clearSessionCookieHeader(): string {
+export function clearSessionCookieHeader() {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
