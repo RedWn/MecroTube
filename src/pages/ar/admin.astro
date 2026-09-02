@@ -7,9 +7,9 @@ import Layout from '../../layouts/Layout.astro';
     import { DamascusTransitApp } from '../../scripts/transit-app';
     import { ADMIN_AUTH_API_URL } from '../../lib/api';
 
-    const res = await fetch(ADMIN_AUTH_API_URL, { headers: { Accept: 'application/json' } });
-    const { authenticated } = await res.json().catch(() => ({ authenticated: false }));
-    if (!authenticated) {
+    const res = await fetch(ADMIN_AUTH_API_URL, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const { ok } = await res.json().catch(() => ({ ok: false }));
+    if (!ok) {
       window.location.href = `/ar/login?to=${encodeURIComponent(window.location.pathname)}`;
     } else {
       const mapEl = document.getElementById('map')!;

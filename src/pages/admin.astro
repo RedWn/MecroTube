@@ -8,8 +8,8 @@ import Layout from '../layouts/Layout.astro';
     import { ADMIN_AUTH_API_URL } from '../lib/api';
 
     const res = await fetch(ADMIN_AUTH_API_URL, { headers: { Accept: 'application/json' } });
-    const { authenticated } = await res.json().catch(() => ({ authenticated: false }));
-    if (!authenticated) {
+    const { ok } = await res.json().catch(() => ({ ok: false }));
+    if (!ok) {
       window.location.href = `/login?to=${encodeURIComponent(window.location.pathname)}`;
     } else {
       const mapEl = document.getElementById('map')!;
