@@ -2,6 +2,7 @@ import L from 'leaflet';
 import type { Stop, TransitLine, TransitData, Locale } from '../lib/types';
 import { exportDataAsJson, parseTransitData, mergeTransitData } from '../lib/storage';
 import { TRANSIT_API_URL } from '../lib/api';
+import { authHeaders, forgetPassword } from '../lib/auth';
 import { dictionaries } from '../i18n/ui';
 
 const DAMASCUS_CENTER: [number, number] = [33.5138, 36.2765];
@@ -28,9 +29,16 @@ function saveToServer(data: TransitData): void {
     .then(() =>
       fetch(API_URL, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body,
       }).then((res) => {
+        if (res.status === 401) {
+          // Password no longer valid (changed server-side, or forgotten):
+          // drop it and reload to show the gate again.
+          forgetPassword();
+          window.location.reload();
+          return;
+        }
         if (!res.ok) throw new Error(`PUT ${API_URL} failed: ${res.status}`);
       }),
     )

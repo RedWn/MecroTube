@@ -27,7 +27,22 @@ const pageTitle = mode === 'admin' ? `${dict.title} — ${dict.admin}` : dict.ti
     <title>{pageTitle}</title>
   </head>
   <body>
-    <div id="app">
+    {mode === 'admin' && (
+      <div id="gate" class="gate" hidden>
+        <form id="gate-form" class="login-card">
+          <h1>{dict.loginTitle}</h1>
+          <p class="subtitle">{dict.loginSubtitle}</p>
+          <label class="login-field">
+            {dict.password}
+            <input type="password" name="password" autocomplete="current-password" required autofocus />
+          </label>
+          <p id="gate-error" class="login-error" hidden>{dict.loginInvalid}</p>
+          <button class="btn btn-primary" type="submit">{dict.loginButton}</button>
+          <a class="btn btn-link" href={`${prefix}/`}>{dict.viewMap}</a>
+        </form>
+      </div>
+    )}
+    <div id="app" hidden={mode === 'admin'}>
       <header class="app-header">
         <div class="header-title">
           <h1>{dict.title}</h1>
@@ -69,8 +84,6 @@ const pageTitle = mode === 'admin' ? `${dict.title} — ${dict.admin}` : dict.ti
     <slot />
     <script is:inline>
       // Mobile menu toggles (no-ops on desktop where buttons are hidden).
-      // is:inline keeps this unbundled so it runs immediately without waiting
-      // for module resolution.
       (function () {
         var navToggle = document.getElementById('nav-toggle');
         var headerNav = document.getElementById('header-nav');
@@ -91,15 +104,5 @@ const pageTitle = mode === 'admin' ? `${dict.title} — ${dict.admin}` : dict.ti
         }
       })();
     </script>
-    {mode === 'admin' && (
-      <script>
-        import { ADMIN_AUTH_API_URL } from '../lib/api';
-        const logoutBtn = document.getElementById('logout-btn');
-        logoutBtn?.addEventListener('click', async () => {
-          await fetch(ADMIN_AUTH_API_URL, { method: 'DELETE' });
-          window.location.href = '/';
-        });
-      </script>
-    )}
   </body>
 </html>

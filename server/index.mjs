@@ -1,12 +1,5 @@
 import http from 'node:http';
-import {
-  login,
-  logout,
-  isAuthenticated,
-  sessionFromHeaders,
-  sessionCookieHeader,
-  clearSessionCookieHeader,
-} from './auth.mjs';
+import { checkPassword, isAuthenticated } from './auth.mjs';
 import { getServerData, writeServerData, parseTransitData } from './data.mjs';
 
 const PORT = Number(process.env.PORT ?? 4322);
@@ -59,43 +52,29 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Validates a password; on success the client stores it and sends it as
+    // a bearer token on subsequent write requests.
     if (path === '/api/admin-auth' && req.method === 'POST') {
       let password = '';
-      let to = '/admin';
       const contentType = req.headers['content-type'] ?? '';
       try {
         if (contentType.includes('application/json')) {
           const body = JSON.parse(await readBody(req));
           password = body.password ?? '';
-          if (typeof body.to === 'string') to = body.to;
         } else {
           const form = new URLSearchParams(await readBody(req));
           password = String(form.get('password') ?? '');
-          to = String(form.get('to') ?? to);
         }
       } catch {
         sendJson(res, 400, { error: 'Invalid request' });
         return;
       }
 
-      const token = login(password);
-      if (!token) {
+      if (!checkPassword(password)) {
         sendJson(res, 401, { error: 'Invalid password' });
         return;
       }
-      if (!to.startsWith('/')) to = '/admin';
-      sendJson(res, 200, { ok: true, to }, { 'Set-Cookie': sessionCookieHeader(token) });
-      return;
-    }
-
-    if (path === '/api/admin-auth' && req.method === 'DELETE') {
-      logout(sessionFromHeaders(req.headers));
-      sendJson(res, 200, { ok: true }, { 'Set-Cookie': clearSessionCookieHeader() });
-      return;
-    }
-
-    if (path === '/api/admin-auth' && req.method === 'GET') {
-      sendJson(res, 200, { authenticated: isAuthenticated(req.headers) });
+      sendJson(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
       return;
     }
 

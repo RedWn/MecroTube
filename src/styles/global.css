@@ -117,7 +117,23 @@ html[dir='rtl'] body {
   background: var(--text);
 }
 
-/* ---------- Login ---------- */
+/* ---------- Login / admin gate ---------- */
+
+.gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.gate[hidden] {
+  display: none;
+}
+
+#app[hidden] {
+  display: none;
+}
 
 .login-body {
   display: flex;

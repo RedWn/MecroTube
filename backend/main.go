@@ -2,14 +2,14 @@
 //
 // Routes:
 //
-//	GET    /api/transit      - public transit data
-//	PUT    /api/transit      - replace transit data (requires admin session)
-//	POST   /api/admin-auth   - log in with the admin password, sets session cookie
-//	GET    /api/admin-auth   - report whether the caller has a valid session
-//	DELETE /api/admin-auth   - log out, clears session cookie
+//	GET  /api/transit      - public transit data
+//	PUT  /api/transit      - replace transit data, requires "Authorization: Bearer <password>"
+//	POST /api/admin-auth   - validate the admin password
 //
-// The admin password is read from data/admin-password.txt (created with the
-// default "changeme" on first run). Transit data is stored in data/transit.db.
+// There are no sessions: the admin password itself is the credential and is
+// checked against data/admin-password.txt on every authenticated request.
+// The password file is created with the default "changeme" on first run.
+// Transit data is stored in data/transit.db.
 package main
 
 import (

@@ -4,23 +4,8 @@ import Layout from '../layouts/Layout.astro';
 <Layout locale="en" mode="admin">
   <script>
     import 'leaflet/dist/leaflet.css';
-    import { DamascusTransitApp } from '../scripts/transit-app';
-    import { ADMIN_AUTH_API_URL } from '../lib/api';
+    import { initAdminGate } from '../scripts/admin-gate';
 
-    const res = await fetch(ADMIN_AUTH_API_URL, { headers: { Accept: 'application/json' } });
-    const { ok } = await res.json().catch(() => ({ ok: false }));
-    if (!ok) {
-      window.location.href = `/login?to=${encodeURIComponent(window.location.pathname)}`;
-    } else {
-      const mapEl = document.getElementById('map')!;
-      const sidebarEl = document.getElementById('line-list')!;
-      const editorEl = document.getElementById('line-editor')!;
-      const addLineBtn = document.getElementById('add-line-btn') as HTMLButtonElement;
-      const exportBtn = document.getElementById('export-btn') as HTMLButtonElement;
-      const importBtn = document.getElementById('import-btn') as HTMLButtonElement;
-      const importInput = document.getElementById('import-input') as HTMLInputElement;
-
-      new DamascusTransitApp({ mapEl, sidebarEl, editorEl, addLineBtn, exportBtn, importBtn, importInput, locale: 'en' });
-    }
+    initAdminGate('en');
   </script>
 </Layout>
