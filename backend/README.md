@@ -5,13 +5,15 @@ Single static binary, no cgo (uses `modernc.org/sqlite`).
 
 ## Routes
 
-| Method | Path              | Description                                          |
-| ------ | ----------------- | ---------------------------------------------------- |
-| GET    | `/api/transit`    | Public transit data (stops + lines)                  |
-| PUT    | `/api/transit`    | Replace transit data (requires admin session cookie) |
-| POST   | `/api/admin-auth` | Log in with the admin password; sets session cookie  |
-| GET    | `/api/admin-auth` | Returns `{ "authenticated": bool }`                  |
-| DELETE | `/api/admin-auth` | Log out; clears session cookie                       |
+| Method | Path              | Description                                                  |
+| ------ | ----------------- | ------------------------------------------------------------ |
+| GET    | `/api/transit`    | Public transit data (stops + lines)                          |
+| PUT    | `/api/transit`    | Replace transit data — requires `Authorization: Bearer <pw>` |
+| POST   | `/api/admin-auth` | Validate the admin password (`{"ok": true}` on success)      |
+
+There are no sessions or cookies. The admin password itself is the credential:
+the admin page validates it once via `POST /api/admin-auth`, keeps it in the
+browser's sessionStorage, and sends it as a bearer token on write requests.
 
 ## Configuration
 

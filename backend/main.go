@@ -13,10 +13,7 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,20 +21,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 const (
-	defaultPort   = "4322"
-	sessionCookie = "admin_session"
-	sessionTTL    = 24 * time.Hour
-	defaultPass   = "changeme"
-	maxBodyBytes  = 10 << 20 // 10 MiB
+	defaultPort  = "4322"
+	defaultPass  = "changeme"
+	maxBodyBytes = 10 << 20 // 10 MiB
 )
 
 // ---------- Transit data model ----------
@@ -143,50 +136,11 @@ func (s *Store) Put(data *TransitData) error {
 	return err
 }
 
-// ---------- Sessions ----------
-//
-// Sessions are stateless signed tokens: "<expiry-unix>.<hmac-sha256 hex>".
-// The signing key is derived from the admin password file, so any backend
-// instance sharing the same data directory validates tokens issued by any
-// other instance, and tokens survive restarts. Changing the admin password
-// invalidates all existing sessions.
-
-func sessionKey(passwdPath string) []byte {
-	sum := sha256.Sum256([]byte("mecrotube-session-v1\x00" + readPassword(passwdPath)))
-	return sum[:]
-}
-
-func createSession(passwdPath string) string {
-	expiry := time.Now().Add(sessionTTL).Unix()
-	payload := strconv.FormatInt(expiry, 10)
-	mac := hmac.New(sha256.New, sessionKey(passwdPath))
-	mac.Write([]byte(payload))
-	return payload + "." + hex.EncodeToString(mac.Sum(nil))
-}
-
-func validSession(token, passwdPath string) bool {
-	dot := strings.IndexByte(token, '.')
-	if dot <= 0 {
-		return false
-	}
-	payload, sigHex := token[:dot], token[dot+1:]
-	sig, err := hex.DecodeString(sigHex)
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, sessionKey(passwdPath))
-	mac.Write([]byte(payload))
-	if !hmac.Equal(sig, mac.Sum(nil)) {
-		return false
-	}
-	expiry, err := strconv.ParseInt(payload, 10, 64)
-	if err != nil {
-		return false
-	}
-	return time.Now().Unix() < expiry
-}
-
 // ---------- Admin password ----------
+//
+// There are no sessions. The admin password is sent directly as a bearer
+// token: "Authorization: Bearer <password>". It is validated against the
+// password file on every request.
 
 func readPassword(path string) string {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -218,11 +172,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func (s *Server) authenticated(r *http.Request) bool {
-	c, err := r.Cookie(sessionCookie)
-	if err != nil {
+	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || token == "" {
 		return false
 	}
-	return validSession(c.Value, s.passwdPath)
+	expected := readPassword(s.passwdPath)
+	return expected != "" && token == expected
 }
 
 func (s *Server) handleTransit(w http.ResponseWriter, r *http.Request) {
@@ -257,73 +212,42 @@ func (s *Server) handleTransit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
-	// Never cache auth responses: a cached pre-login "authenticated:false"
-	// would bounce the admin page back to /login right after a successful
-	// login.
+	// Never cache auth responses.
 	w.Header().Set("Cache-Control", "no-store")
-	switch r.Method {
-	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]bool{"authenticated": s.authenticated(r)})
-	case http.MethodPost:
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		return
+	}
 
-		var password, to string
-		to = "/admin"
-		ct := r.Header.Get("Content-Type")
-		if strings.Contains(ct, "application/json") {
-			var body struct {
-				Password string `json:"password"`
-				To       string `json:"to"`
-			}
-			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
-				return
-			}
-			password, to = body.Password, body.To
-		} else {
-			if err := r.ParseForm(); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
-				return
-			}
-			password = r.FormValue("password")
-			if v := r.FormValue("to"); v != "" {
-				to = v
-			}
+	// Validates a password. Accepts JSON or urlencoded bodies; returns
+	// {"ok": true} on success so callers can store the password and use it
+	// as a bearer token on subsequent requests.
+	var password string
+	ct := r.Header.Get("Content-Type")
+	if strings.Contains(ct, "application/json") {
+		var body struct {
+			Password string `json:"password"`
 		}
-		expected := readPassword(s.passwdPath)
-
-		if expected == "" || password != expected {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid password"})
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
 			return
 		}
-		if !strings.HasPrefix(to, "/") {
-			to = "/admin"
+		password = body.Password
+	} else {
+		if err := r.ParseForm(); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+			return
 		}
-		token := createSession(s.passwdPath)
-		http.SetCookie(w, &http.Cookie{
-			Name:     sessionCookie,
-			Value:    token,
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(sessionTTL.Seconds()),
-		})
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "to": to})
-	case http.MethodDelete:
-		// Tokens are stateless, so there is nothing to delete server-side;
-		// expiring the cookie ends the session from the client's side.
-		http.SetCookie(w, &http.Cookie{
-			Name:     sessionCookie,
-			Value:    "",
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   -1,
-		})
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-	default:
-		w.Header().Set("Allow", "GET, POST, DELETE")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "Method not allowed"})
+		password = r.FormValue("password")
 	}
+
+	expected := readPassword(s.passwdPath)
+	if expected == "" || password != expected {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid password"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func main() {
