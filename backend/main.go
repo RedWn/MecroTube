@@ -13,7 +13,8 @@
 package main
 
 import (
-	"crypto/rand"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -23,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,49 +144,46 @@ func (s *Store) Put(data *TransitData) error {
 }
 
 // ---------- Sessions ----------
+//
+// Sessions are stateless signed tokens: "<expiry-unix>.<hmac-sha256 hex>".
+// The signing key is derived from the admin password file, so any backend
+// instance sharing the same data directory validates tokens issued by any
+// other instance, and tokens survive restarts. Changing the admin password
+// invalidates all existing sessions.
 
-type Sessions struct {
-	mu      sync.Mutex
-	entries map[string]time.Time // token -> expiry
+func sessionKey(passwdPath string) []byte {
+	sum := sha256.Sum256([]byte("mecrotube-session-v1\x00" + readPassword(passwdPath)))
+	return sum[:]
 }
 
-func NewSessions() *Sessions {
-	return &Sessions{entries: map[string]time.Time{}}
+func createSession(passwdPath string) string {
+	expiry := time.Now().Add(sessionTTL).Unix()
+	payload := strconv.FormatInt(expiry, 10)
+	mac := hmac.New(sha256.New, sessionKey(passwdPath))
+	mac.Write([]byte(payload))
+	return payload + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
-func (s *Sessions) Create() string {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		panic(err)
-	}
-	token := hex.EncodeToString(buf)
-	s.mu.Lock()
-	s.entries[token] = time.Now().Add(sessionTTL)
-	s.mu.Unlock()
-	return token
-}
-
-func (s *Sessions) Valid(token string) bool {
-	if token == "" {
+func validSession(token, passwdPath string) bool {
+	dot := strings.IndexByte(token, '.')
+	if dot <= 0 {
 		return false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	expiry, ok := s.entries[token]
-	if !ok {
+	payload, sigHex := token[:dot], token[dot+1:]
+	sig, err := hex.DecodeString(sigHex)
+	if err != nil {
 		return false
 	}
-	if time.Now().After(expiry) {
-		delete(s.entries, token)
+	mac := hmac.New(sha256.New, sessionKey(passwdPath))
+	mac.Write([]byte(payload))
+	if !hmac.Equal(sig, mac.Sum(nil)) {
 		return false
 	}
-	return true
-}
-
-func (s *Sessions) Delete(token string) {
-	s.mu.Lock()
-	delete(s.entries, token)
-	s.mu.Unlock()
+	expiry, err := strconv.ParseInt(payload, 10, 64)
+	if err != nil {
+		return false
+	}
+	return time.Now().Unix() < expiry
 }
 
 // ---------- Admin password ----------
@@ -209,7 +208,6 @@ func readPassword(path string) string {
 
 type Server struct {
 	store      *Store
-	sessions   *Sessions
 	passwdPath string
 }
 
@@ -224,7 +222,7 @@ func (s *Server) authenticated(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return s.sessions.Valid(c.Value)
+	return validSession(c.Value, s.passwdPath)
 }
 
 func (s *Server) handleTransit(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +257,10 @@ func (s *Server) handleTransit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
+	// Never cache auth responses: a cached pre-login "authenticated:false"
+	// would bounce the admin page back to /login right after a successful
+	// login.
+	w.Header().Set("Cache-Control", "no-store")
 	switch r.Method {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, map[string]bool{"authenticated": s.authenticated(r)})
@@ -289,10 +291,6 @@ func (s *Server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
 		}
 		expected := readPassword(s.passwdPath)
 
-		log.Printf("hi")
-		log.Printf(password)
-		log.Printf(expected)
-
 		if expected == "" || password != expected {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid password"})
 			return
@@ -300,7 +298,7 @@ func (s *Server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(to, "/") {
 			to = "/admin"
 		}
-		token := s.sessions.Create()
+		token := createSession(s.passwdPath)
 		http.SetCookie(w, &http.Cookie{
 			Name:     sessionCookie,
 			Value:    token,
@@ -311,9 +309,8 @@ func (s *Server) handleAdminAuth(w http.ResponseWriter, r *http.Request) {
 		})
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "to": to})
 	case http.MethodDelete:
-		if c, err := r.Cookie(sessionCookie); err == nil {
-			s.sessions.Delete(c.Value)
-		}
+		// Tokens are stateless, so there is nothing to delete server-side;
+		// expiring the cookie ends the session from the client's side.
 		http.SetCookie(w, &http.Cookie{
 			Name:     sessionCookie,
 			Value:    "",
@@ -338,7 +335,6 @@ func main() {
 
 	srv := &Server{
 		store:      store,
-		sessions:   NewSessions(),
 		passwdPath: filepath.Join(dataDir, "admin-password.txt"),
 	}
 
