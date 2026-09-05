@@ -1,4 +1,4 @@
-# MecroTubeVibe
+# MecroTube
 
 Static Astro site for viewing/editing transit lines. All dynamic behavior (data
 storage, admin auth) is provided by a small standalone Node API server
