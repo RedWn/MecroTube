@@ -444,6 +444,11 @@ export class DamascusTransitApp {
   }
 
   private renderEditor() {
+    // renderAll() rebuilds the editor DOM on every change, which resets the
+    // stops list scroll position to the top. Capture it now and restore it
+    // after the re-render so reordering/dragging stops doesn't jump the view.
+    const prevStopsList = this.editorEl.querySelector('.stops-list');
+    const stopsListScrollTop = prevStopsList?.scrollTop;
     this.editorEl.innerHTML = '';
     const line = this.data.lines.find((l) => l.id === this.selectedLineId);
     if (!line) {
@@ -538,10 +543,46 @@ export class DamascusTransitApp {
     stops.forEach((stop, index) => {
       const row = document.createElement('li');
       row.className = 'stop-row';
+      row.draggable = true;
 
       const label = document.createElement('span');
       label.className = 'stop-row-name';
       label.textContent = `${index + 1}. ${this.stopName(stop)}`;
+
+      // Reorder by drag and drop. The dragged row keeps a reference to its
+      // original index; dropping onto another row inserts it before/after
+      // that row depending on where within the row the pointer is.
+      row.addEventListener('dragstart', (e) => {
+        e.dataTransfer?.setData('text/plain', String(index));
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        row.classList.add('dragging');
+      });
+      row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        for (const r of stopsList.querySelectorAll('.drag-over')) r.classList.remove('drag-over', 'drag-over-bottom');
+      });
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        const after = e.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+        for (const r of stopsList.querySelectorAll('.drag-over')) r.classList.remove('drag-over', 'drag-over-bottom');
+        row.classList.add(after ? 'drag-over-bottom' : 'drag-over');
+      });
+      row.addEventListener('dragleave', () => {
+        row.classList.remove('drag-over', 'drag-over-bottom');
+      });
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const from = Number(e.dataTransfer?.getData('text/plain'));
+        if (!Number.isInteger(from)) return;
+        const after = e.clientY > row.getBoundingClientRect().top + row.offsetHeight / 2;
+        let to = index + (after ? 1 : 0);
+        const [moved] = line.stopIds.splice(from, 1);
+        if (from < to) to -= 1;
+        line.stopIds.splice(to, 0, moved);
+        this.save();
+        this.renderAll();
+      });
 
       const upBtn = document.createElement('button');
       upBtn.className = 'icon-btn';
@@ -597,5 +638,6 @@ export class DamascusTransitApp {
     deleteLineBtn.addEventListener('click', () => this.deleteLine(line.id));
 
     this.editorEl.append(form, editToggle, hint, stopsList, deleteLineBtn);
+    if (stopsListScrollTop !== undefined) stopsList.scrollTop = stopsListScrollTop;
   }
 }

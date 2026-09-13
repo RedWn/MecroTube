@@ -1,4 +1,4 @@
-import type { TransitData } from './types';
+import type { Stop, TransitData, TransitLine } from './types';
 
 /**
  * Validates that a parsed JSON value has the shape of TransitData.
@@ -58,13 +58,28 @@ function sameLineName(a: TransitLine, b: TransitLine): boolean {
 }
 
 /**
+ * True when two stops share a non-empty English or Arabic name and sit at
+ * the same position.
+ */
+function sameStop(a: Stop, b: Stop): boolean {
+  return (
+    ((Boolean(a.nameEn) && a.nameEn === b.nameEn) ||
+      (Boolean(a.nameAr) && a.nameAr === b.nameAr)) &&
+    a.lat === b.lat &&
+    a.lng === b.lng
+  );
+}
+
+/**
  * Merges imported data into the current data, appending its stops and lines
  * rather than replacing anything. Imported lines whose name already exists
  * (in the current data or among previously kept imports) are skipped, along
- * with any stops they exclusively reference. If an imported stop/line id
- * collides with an id already in use, it is given a new unique id (and any
- * references to it, e.g. a line's stopIds, are updated accordingly) so
- * nothing is overwritten or corrupted.
+ * with any stops they exclusively reference. Imported stops that match an
+ * existing or already-kept stop (same name and position) are merged into it:
+ * the existing stop is kept and references are updated to point at it. If an
+ * imported stop/line id collides with an id already in use, it is given a new
+ * unique id (and any references to it, e.g. a line's stopIds, are updated
+ * accordingly) so nothing is overwritten or corrupted.
  */
 export function mergeTransitData(current: TransitData, imported: TransitData): TransitData {
   const stopIds = new Set(current.stops.map((s) => s.id));
@@ -84,15 +99,23 @@ export function mergeTransitData(current: TransitData, imported: TransitData): T
   const usedStopIds = new Set(keptImportedLines.flatMap((l) => l.stopIds));
   const keptStops = imported.stops.filter((s) => usedStopIds.has(s.id));
 
+  // Map each kept imported stop onto an existing stop when it has the same
+  // name and position, otherwise append it as a new stop.
   const stopIdMap = new Map<string, string>();
-  const mergedStops = [
-    ...current.stops,
-    ...keptStops.map((stop) => {
-      const id = stopIds.has(stop.id) ? uniqueId('stop', stopIds) : (stopIds.add(stop.id), stop.id);
-      stopIdMap.set(stop.id, id);
-      return { ...stop, id };
-    }),
-  ];
+  const existingStops: Stop[] = [...current.stops];
+  const newStops: Stop[] = [];
+  for (const stop of keptStops) {
+    const match = existingStops.find((s) => sameStop(s, stop));
+    if (match) {
+      stopIdMap.set(stop.id, match.id);
+      continue;
+    }
+    const id = stopIds.has(stop.id) ? uniqueId('stop', stopIds) : (stopIds.add(stop.id), stop.id);
+    stopIdMap.set(stop.id, id);
+    const newStop = { ...stop, id };
+    existingStops.push(newStop);
+    newStops.push(newStop);
+  }
 
   const mergedLines = [
     ...current.lines,
@@ -106,5 +129,5 @@ export function mergeTransitData(current: TransitData, imported: TransitData): T
     }),
   ];
 
-  return { stops: mergedStops, lines: mergedLines };
+  return { stops: [...current.stops, ...newStops], lines: mergedLines };
 }
