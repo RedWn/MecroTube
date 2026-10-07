@@ -554,10 +554,104 @@ html[dir='rtl'] body {
   animation: locate-spin 1s linear infinite;
 }
 
+/* Stacked above the locate button; hidden unless pins exist. */
+.clear-pins-btn {
+  bottom: calc(1.25rem + 3.15rem);
+}
+
+.locate-btn[hidden],
+.clear-pins-btn[hidden] {
+  display: none;
+}
+
 @keyframes locate-spin {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Place search (local-only pins) */
+.place-search {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: min(340px, calc(100% - 1.5rem));
+}
+
+.place-search-input {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.place-search-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.place-search-results {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 16px rgba(28, 31, 36, 0.12);
+}
+
+.place-search-results[hidden] {
+  display: none;
+}
+
+.place-search-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0.7rem;
+  border: none;
+  background: none;
+  text-align: start;
+  cursor: pointer;
+  font: inherit;
+}
+
+.place-search-item:hover,
+.place-search-item:focus-visible {
+  background: var(--accent-soft);
+}
+
+.place-search-item-name {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.place-search-item-detail {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-search-empty {
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.place-pin {
+  background: transparent;
+  border: none;
+  cursor: pointer;
 }
 
 /* ---------- Mobile ---------- */
@@ -601,6 +695,14 @@ html[dir='rtl'] body {
   .nav-link {
     text-align: center;
     padding: 0.55rem 0.85rem;
+  }
+
+  /* Keep the search box clear of Leaflet's zoom control (top-left). */
+  .place-search {
+    left: auto;
+    right: 0.75rem;
+    transform: none;
+    width: min(340px, calc(100% - 5.5rem));
   }
 
   /* Map on top; lines list collapses behind a toggle bar */

@@ -43,6 +43,9 @@ export const dictionaries = {
     menu: 'Menu',
     linesToggle: 'Lines',
     locate: 'Refresh my location',
+    searchPlace: 'Search a place…',
+    noResults: 'No results found.',
+    clearPins: 'Clear pins',
   },
   ar: {
     title: 'خريطة مواصلات دمشق',
@@ -86,6 +89,9 @@ export const dictionaries = {
     menu: 'القائمة',
     linesToggle: 'الخطوط',
     locate: 'تحديث موقعي',
+    searchPlace: 'ابحث عن مكان…',
+    noResults: 'لا توجد نتائج.',
+    clearPins: 'مسح العلامات',
   },
 } satisfies Record<Locale, Record<string, string>>;
 

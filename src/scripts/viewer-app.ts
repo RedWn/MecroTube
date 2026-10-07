@@ -66,6 +66,8 @@ export class DamascusTransitViewer {
     this.map.on('zoomend', () => this.renderMap());
 
     this.startLocationTracking();
+    this.addPlaceSearch();
+    this.addClearPinsButton();
 
     void this.loadInitialData();
   }
@@ -76,6 +78,13 @@ export class DamascusTransitViewer {
   private locateBtn: HTMLButtonElement | null = null;
   /** When true, the next accepted fix recenters the map (button was pressed). */
   private panToNextFix = false;
+
+  private placePins: L.Marker[] = [];
+  private clearPinsBtn: HTMLButtonElement | null = null;
+  private searchInput: HTMLInputElement | null = null;
+  private searchResultsEl: HTMLDivElement | null = null;
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+  private searchAbort: AbortController | null = null;
 
   /**
    * Show the user's current location as a large blue dot (Google-Maps style).
@@ -180,6 +189,169 @@ export class DamascusTransitViewer {
     });
     this.map.getContainer().appendChild(btn);
     this.locateBtn = btn;
+  }
+
+  /**
+   * Floating search box (top of map): look up a place by name via Nominatim
+   * and drop a pin on it. Pins are local-only — never sent to the server —
+   * and are removed by clicking them.
+   */
+  private addPlaceSearch() {
+    const box = document.createElement('div');
+    box.className = 'place-search';
+
+    const input = document.createElement('input');
+    input.type = 'search';
+    input.className = 'place-search-input';
+    input.placeholder = this.t('searchPlace');
+    input.setAttribute('aria-label', this.t('searchPlace'));
+
+    const results = document.createElement('div');
+    results.className = 'place-search-results';
+    results.hidden = true;
+
+    box.append(input, results);
+    this.map.getContainer().appendChild(box);
+    this.searchInput = input;
+    this.searchResultsEl = results;
+
+    input.addEventListener('input', () => {
+      this.closeSearchResults();
+      if (this.searchTimer !== null) clearTimeout(this.searchTimer);
+      const query = input.value.trim();
+      if (query.length < 3) return;
+      this.searchTimer = setTimeout(() => void this.searchPlaces(query), 350);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.closeSearchResults();
+      if (e.key === 'Enter') {
+        const first = results.querySelector<HTMLButtonElement>('button');
+        if (first) {
+          e.preventDefault();
+          first.click();
+        }
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!box.contains(e.target as Node)) this.closeSearchResults();
+    });
+  }
+
+  /** Floating trash button that removes all pins; shown only while pins exist. */
+  private addClearPinsButton() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'locate-btn clear-pins-btn';
+    btn.title = this.t('clearPins');
+    btn.setAttribute('aria-label', this.t('clearPins'));
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M4 7h16"/>' +
+      '<path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>' +
+      '<path d="M6.5 7l.9 12.1A2 2 0 0 0 9.4 21h5.2a2 2 0 0 0 2-1.9L17.5 7"/>' +
+      '<path d="M10 11v6M14 11v6"/>' +
+      '</svg>';
+    btn.hidden = true;
+    btn.addEventListener('click', () => {
+      for (const pin of this.placePins) pin.remove();
+      this.placePins = [];
+      this.updateClearPinsBtn();
+    });
+    this.map.getContainer().appendChild(btn);
+    this.clearPinsBtn = btn;
+  }
+
+  private updateClearPinsBtn() {
+    if (this.clearPinsBtn) this.clearPinsBtn.hidden = this.placePins.length === 0;
+  }
+
+  private async searchPlaces(query: string) {
+    this.searchAbort?.abort();
+    const abort = new AbortController();
+    this.searchAbort = abort;
+    // OSM Nominatim geocoder: no API key, CORS-enabled, biased (not limited)
+    // toward the Damascus area so local results rank first.
+    const params = new URLSearchParams({
+      q: query,
+      format: 'jsonv2',
+      addressdetails: '1',
+      limit: '6',
+      viewbox: '36.0,33.3,36.6,33.8',
+      'accept-language': this.locale,
+    });
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { signal: abort.signal });
+      if (!res.ok) throw new Error(`geocoding failed: ${res.status}`);
+      const rows = (await res.json()) as Array<{ lat: string; lon: string; name?: string; display_name: string }>;
+      if (abort.signal.aborted) return;
+      this.renderSearchResults(
+        rows.map((r) => {
+          const parts = r.display_name.split(',').map((s) => s.trim());
+          return { lat: parseFloat(r.lat), lng: parseFloat(r.lon), primary: r.name || parts[0], secondary: parts.slice(1).join(', ') };
+        }),
+      );
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      console.warn('Place search failed', err);
+      this.renderSearchResults([]);
+    }
+  }
+
+  private renderSearchResults(items: { lat: number; lng: number; primary: string; secondary: string }[]) {
+    const results = this.searchResultsEl;
+    if (!results) return;
+    results.innerHTML = '';
+    results.hidden = false;
+    if (items.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'place-search-empty';
+      empty.textContent = this.t('noResults');
+      results.appendChild(empty);
+      return;
+    }
+    for (const item of items) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'place-search-item';
+      const name = document.createElement('span');
+      name.className = 'place-search-item-name';
+      name.textContent = item.primary;
+      const detail = document.createElement('span');
+      detail.className = 'place-search-item-detail';
+      detail.textContent = item.secondary;
+      btn.append(name, detail);
+      btn.addEventListener('click', () => this.dropPlacePin(item));
+      results.appendChild(btn);
+    }
+  }
+
+  private closeSearchResults() {
+    if (this.searchResultsEl) this.searchResultsEl.hidden = true;
+  }
+
+  private dropPlacePin(item: { lat: number; lng: number; primary: string; secondary: string }) {
+    const marker = L.marker([item.lat, item.lng], {
+      icon: L.divIcon({
+        className: 'place-pin',
+        html: '<svg width="26" height="36" viewBox="0 0 24 34"><path d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12c0 7.6 8.6 17.7 10 19.4a.9.9 0 0 0 1 0c1.4-1.7 10-11.8 10-19.4C22.5 6.2 17.8 1.5 12 1.5z" fill="#d64545" stroke="#fff" stroke-width="2"/><circle cx="12" cy="12" r="4.4" fill="#fff"/></svg>',
+        iconSize: [26, 36],
+        iconAnchor: [13, 34],
+      }),
+    }).addTo(this.map);
+    marker.bindTooltip(item.primary, { direction: 'top', offset: [0, -32] });
+    // Clicking a pin removes it (it only lives in this browser session).
+    marker.on('click', (ev: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(ev);
+      marker.remove();
+      this.placePins = this.placePins.filter((p) => p !== marker);
+      this.updateClearPinsBtn();
+    });
+    this.placePins.push(marker);
+    this.updateClearPinsBtn();
+
+    this.closeSearchResults();
+    if (this.searchInput) this.searchInput.value = item.primary;
+    this.map.setView([item.lat, item.lng], Math.max(this.map.getZoom(), 15));
   }
 
   private async loadInitialData() {
