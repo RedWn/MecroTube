@@ -42,6 +42,7 @@ export const dictionaries = {
     loginButton: 'Log in',
     menu: 'Menu',
     linesToggle: 'Lines',
+    locate: 'Refresh my location',
   },
   ar: {
     title: 'خريطة مواصلات دمشق',
@@ -84,6 +85,7 @@ export const dictionaries = {
     loginButton: 'تسجيل الدخول',
     menu: 'القائمة',
     linesToggle: 'الخطوط',
+    locate: 'تحديث موقعي',
   },
 } satisfies Record<Locale, Record<string, string>>;
 

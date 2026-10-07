@@ -5,6 +5,8 @@ import { TRANSIT_API_URL } from '../lib/api';
 import { dictionaries } from '../i18n/ui';
 
 const DAMASCUS_CENTER: [number, number] = [33.5138, 36.2765];
+/** At or above this zoom, line names are drawn along the lines themselves. */
+const LINE_LABEL_MIN_ZOOM = 15;
 
 const API_URL = TRANSIT_API_URL;
 
@@ -31,6 +33,9 @@ export class DamascusTransitViewer {
   private lineLayers: L.Polyline[] = [];
   private stopMarkers: L.CircleMarker[] = [];
   private arrowMarkers: L.Marker[] = [];
+  private lineLabelMarkers: L.Marker[] = [];
+  private locationDot: L.CircleMarker | null = null;
+  private locationAccuracy: L.Circle | null = null;
 
   private sidebarEl: HTMLElement;
 
@@ -57,8 +62,124 @@ export class DamascusTransitViewer {
     }).addTo(this.map);
 
     this.map.on('click', () => this.selectLine(null));
+    // Zoom-dependent labels (line names along the route when zoomed in).
+    this.map.on('zoomend', () => this.renderMap());
+
+    this.startLocationTracking();
 
     void this.loadInitialData();
+  }
+
+  /** Accuracy of the fix currently shown on the map (meters). */
+  private locationAccuracyM = Infinity;
+  private locationWatchId: number | null = null;
+  private locateBtn: HTMLButtonElement | null = null;
+  /** When true, the next accepted fix recenters the map (button was pressed). */
+  private panToNextFix = false;
+
+  /**
+   * Show the user's current location as a large blue dot (Google-Maps style).
+   * Early fixes are often coarse (cell tower / WiFi-based); we accept every
+   * fix at first so the dot appears quickly, then only move it when a fix is
+   * at least as accurate as what's on screen. This lets the dot converge on
+   * the best GPS fix instead of jumping around on noisy readings.
+   */
+  private startLocationTracking() {
+    if (!('geolocation' in navigator)) return;
+
+    this.restartWatch();
+    // Browsers throttle geolocation in background tabs; restart the watch
+    // when the page becomes visible again so accuracy recovers quickly.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') this.restartWatch();
+    });
+
+    this.addLocateButton();
+  }
+
+  /** Drop the current watch and request fresh fixes from scratch. */
+  private restartWatch() {
+    if (this.locationWatchId !== null) navigator.geolocation.clearWatch(this.locationWatchId);
+    // Accept the next fix even if it's coarser than what's on screen: the
+    // dot re-converges onto the freshest data instead of being pinned to a
+    // possibly stale position.
+    this.locationAccuracyM = Infinity;
+    this.locationWatchId = navigator.geolocation.watchPosition(
+      (pos) => this.handleFix(pos),
+      (err) => {
+        this.locateBtn?.classList.remove('loading');
+        console.warn('Geolocation unavailable', err);
+      },
+      {
+        enableHighAccuracy: true, // use GPS, not just WiFi/cell
+        maximumAge: 0, // never accept a cached fix
+        timeout: 30_000, // give the GPS chip time to lock on
+      },
+    );
+  }
+
+  private handleFix(pos: GeolocationPosition) {
+    const accuracy = pos.coords.accuracy;
+    // Ignore fixes that are no better than what we already show,
+    // unless the previous fix has gone stale (user actually moved).
+    if (this.locationDot && accuracy > this.locationAccuracyM * 1.2) return;
+
+    this.locationAccuracyM = accuracy;
+    const latlng: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+    if (!this.locationDot) {
+      // Accuracy ring underneath.
+      this.locationAccuracy = L.circle(latlng, {
+        radius: accuracy,
+        color: 'transparent',
+        fillColor: '#2f6bd8',
+        fillOpacity: 0.15,
+        interactive: false,
+      }).addTo(this.map);
+      // Large blue dot with a white ring.
+      this.locationDot = L.circleMarker(latlng, {
+        radius: 11,
+        color: '#fff',
+        weight: 3.5,
+        fillColor: '#2f6bd8',
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(this.map);
+    } else {
+      this.locationDot.setLatLng(latlng);
+      this.locationAccuracy!.setLatLng(latlng);
+      this.locationAccuracy!.setRadius(accuracy);
+    }
+
+    this.locateBtn?.classList.remove('loading');
+    if (this.panToNextFix) {
+      this.panToNextFix = false;
+      this.map.setView(latlng, Math.max(this.map.getZoom(), 15));
+    }
+  }
+
+  /** Floating button that refreshes the location fix and pans the map to it. */
+  private addLocateButton() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'locate-btn';
+    btn.title = this.t('locate');
+    btn.setAttribute('aria-label', this.t('locate'));
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+      '<circle cx="12" cy="12" r="3.2"/>' +
+      '<circle cx="12" cy="12" r="7.4"/>' +
+      '<line x1="12" y1="1.4" x2="12" y2="4.4"/>' +
+      '<line x1="12" y1="19.6" x2="12" y2="22.6"/>' +
+      '<line x1="1.4" y1="12" x2="4.4" y2="12"/>' +
+      '<line x1="19.6" y1="12" x2="22.6" y2="12"/>' +
+      '</svg>';
+    btn.addEventListener('click', () => {
+      btn.classList.add('loading');
+      this.panToNextFix = true;
+      this.restartWatch();
+    });
+    this.map.getContainer().appendChild(btn);
+    this.locateBtn = btn;
   }
 
   private async loadInitialData() {
@@ -99,9 +220,11 @@ export class DamascusTransitViewer {
     for (const layer of this.lineLayers) layer.remove();
     for (const marker of this.stopMarkers) marker.remove();
     for (const arrow of this.arrowMarkers) arrow.remove();
+    for (const label of this.lineLabelMarkers) label.remove();
     this.lineLayers = [];
     this.stopMarkers = [];
     this.arrowMarkers = [];
+    this.lineLabelMarkers = [];
 
     const interchanges = this.interchangeIds();
     const selected = this.data.lines.find((l) => l.id === this.selectedLineId);
@@ -128,6 +251,7 @@ export class DamascusTransitViewer {
       });
       this.lineLayers.push(polyline);
       if (line.id === this.selectedLineId) this.addLineArrows(latlngs);
+      if (this.map.getZoom() >= LINE_LABEL_MIN_ZOOM) this.addLineNameLabels(line, stops);
     };
 
     for (const line of visibleLines) {
@@ -163,6 +287,30 @@ export class DamascusTransitViewer {
       }
 
       this.stopMarkers.push(marker);
+    }
+  }
+
+  /**
+   * Draw the line's name repeatedly along its path (one label per segment,
+   * at each segment's midpoint) so the name stays visible while panning
+   * around when zoomed in and the stop labels are off-screen.
+   */
+  private addLineNameLabels(line: TransitLine, stops: Stop[]) {
+    const name = this.lineName(line);
+    if (!name) return;
+    for (let i = 0; i < stops.length - 1; i++) {
+      const a = stops[i];
+      const b = stops[i + 1];
+      const mid: [number, number] = [(a.lat + b.lat) / 2, (a.lng + b.lng) / 2];
+      const icon = L.divIcon({
+        className: 'line-name-label',
+        html: `<span class="line-name-label-inner" style="background:${line.color}">${name}</span>`,
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+      });
+      const label = L.marker(mid, { icon, interactive: false });
+      label.addTo(this.map);
+      this.lineLabelMarkers.push(label);
     }
   }
 
