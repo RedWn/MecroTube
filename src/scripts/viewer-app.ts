@@ -422,8 +422,9 @@ export class DamascusTransitViewer {
         this.selectLine(line.id);
       });
       this.lineLayers.push(polyline);
-      if (line.id === this.selectedLineId) this.addLineArrows(latlngs);
-      if (this.map.getZoom() >= LINE_LABEL_MIN_ZOOM) this.addLineNameLabels(line, stops);
+      const isSelected = line.id === this.selectedLineId;
+      if (isSelected) this.addLineArrows(latlngs);
+      if (this.map.getZoom() >= LINE_LABEL_MIN_ZOOM) this.addLineNameLabels(line, latlngs, isSelected);
     };
 
     for (const line of visibleLines) {
@@ -466,24 +467,41 @@ export class DamascusTransitViewer {
    * Draw the line's name repeatedly along its path (one label per segment,
    * at each segment's midpoint) so the name stays visible while panning
    * around when zoomed in and the stop labels are off-screen.
+   *
+   * When the segment also carries a direction arrow (`dodgeArrows`), the
+   * label is pushed sideways off the line so the arrow stays visible
+   * instead of hiding under the pill; otherwise it straddles the line.
    */
-  private addLineNameLabels(line: TransitLine, stops: Stop[]) {
+  private addLineNameLabels(line: TransitLine, latlngs: [number, number][], dodgeArrows: boolean) {
     const name = this.lineName(line);
     if (!name) return;
-    for (let i = 0; i < stops.length - 1; i++) {
-      const a = stops[i];
-      const b = stops[i + 1];
-      const mid: [number, number] = [(a.lat + b.lat) / 2, (a.lng + b.lng) / 2];
+    for (let i = 0; i < latlngs.length - 1; i++) {
+      const a = latlngs[i];
+      const b = latlngs[i + 1];
+      const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const at = dodgeArrows ? this.offsetPerpendicular(mid, a, b, 18) : mid;
       const icon = L.divIcon({
         className: 'line-name-label',
         html: `<span class="line-name-label-inner" style="background:${line.color}">${name}</span>`,
         iconSize: [0, 0],
         iconAnchor: [0, 0],
       });
-      const label = L.marker(mid, { icon, interactive: false });
+      const label = L.marker(at, { icon, interactive: false });
       label.addTo(this.map);
       this.lineLabelMarkers.push(label);
     }
+  }
+
+  /** Move `latlng` `px` screen pixels perpendicular to segment a→b (consistent side: right of travel order). */
+  private offsetPerpendicular(latlng: [number, number], a: [number, number], b: [number, number], px: number): [number, number] {
+    const c = this.map.latLngToLayerPoint(latlng);
+    const pa = this.map.latLngToLayerPoint(a);
+    const pb = this.map.latLngToLayerPoint(b);
+    const dx = pb.x - pa.x;
+    const dy = pb.y - pa.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const shifted = this.map.layerPointToLatLng(L.point(c.x - (dy / len) * px, c.y + (dx / len) * px));
+    return [shifted.lat, shifted.lng];
   }
 
   private addLineArrows(latlngs: [number, number][]) {
@@ -498,7 +516,8 @@ export class DamascusTransitViewer {
         iconSize: [18, 18],
         iconAnchor: [9, 9],
       });
-      const arrow = L.marker(mid, { icon, interactive: false });
+      // z-index offset keeps arrows above name pills even if they overlap.
+      const arrow = L.marker(mid, { icon, interactive: false, zIndexOffset: 100 });
       arrow.addTo(this.map);
       this.arrowMarkers.push(arrow);
     }
